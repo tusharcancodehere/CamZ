@@ -22,6 +22,8 @@ dependencies = [
     "pillow",
     "python-dotenv",
     "httpx",
+    "pyperclip",
+    "qrcode",
 ]
 
 [project.optional-dependencies]
