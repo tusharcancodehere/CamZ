@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useStore } from './store/useStore'
 import { Sidebar } from './components/Sidebar'
 import { TopBar } from './components/TopBar'
@@ -17,7 +17,6 @@ import { Logs } from './pages/Logs'
 
 const Layout: React.FC = () => {
   const { setActiveTab, fetchHealth } = useStore()
-  const navigate = useNavigate()
   const location = useLocation()
 
   // Sync route → Zustand (one direction only; Sidebar reads activeTab for highlighting)

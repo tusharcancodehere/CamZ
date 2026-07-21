@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 
 export const Sidebar: React.FC = () => {
-  const { activeTab, setMobileSidebarOpen } = useStore()
+  const { activeTab, mobileSidebarOpen, setMobileSidebarOpen } = useStore()
   const navigate = useNavigate()
   const [collapsed, setCollapsed] = useState(false)
 
