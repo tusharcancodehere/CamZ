@@ -117,6 +117,68 @@ CAMZ reads configuration options from standard environment variables (or local `
 
 ---
 
+## ☁️ Cloudflare Tunnel Integration
+
+CAMZ features native, production-grade Cloudflare Tunnel support to securely expose your camera streaming feed and dashboard interface over a public HTTPS URL without port-forwarding or local firewall adjustments.
+
+### 📐 Tunnel Architecture
+
+```mermaid
+flowchart LR
+    Browser([Remote Browser]) -->|HTTPS| CloudflareEdge[Cloudflare Edge Network]
+    CloudflareEdge -->|Secure Tunnel Protocol| Cloudflared[cloudflared daemon]
+    Cloudflared -->|HTTP localhost:8000| CAMZ[CAMZ FastAPI Web Server]
+    CAMZ -->|IPC/Frame Bus| Camera[Camera Feed]
+    
+    subgraph Host System [Your Local Machine / Raspberry Pi]
+        Cloudflared
+        CAMZ
+        Camera
+    end
+```
+
+### 🚀 Quick Start (TryCloudflare)
+
+To instantly expose your local CAMZ installation to a random public HTTPS subdomain (ideal for testing or temporary remote monitoring), simply run:
+```bash
+./camz share
+```
+This command automatically:
+1. Detects if the CAMZ server is running (starts it in the background if offline).
+2. Spawns and supervises the `cloudflared` tunnel process.
+3. Retrieves the secure URL (`https://*.trycloudflare.com`).
+4. Renders an interactive ASCII QR Code in the terminal.
+5. Copies the URL to your system clipboard.
+
+### 🛠️ CLI Operations
+
+You can control and query the tunnel supervisor service directly from the command line:
+* `camz tunnel start` - Start the background tunnel.
+* `camz tunnel stop` - Stop the active tunnel.
+* `camz tunnel restart` - Trigger a service restart.
+* `camz tunnel status` - View uptime, latency, and crash telemetry.
+* `camz tunnel logs` - Scan recent daemon logs.
+
+### ⚙️ Production Configuration (Named Tunnels)
+
+For permanent setups using your own custom domain, configure the `[tunnel]` section in your `config.toml`:
+
+```toml
+[tunnel]
+enabled = true
+provider = "cloudflare"
+autostart = true               # Start tunnel automatically on server boot
+install_if_missing = true      # Install cloudflared automatically via apt/pacman/dnf
+share_localhost = "http://127.0.0.1:8000"
+quick_tunnel = false           # Set to false for custom domains
+hostname = "camz.yourdomain.com"
+token = "your-cloudflare-tunnel-token-here"
+```
+
+If `token` is specified, `cloudflared` runs as a Named Tunnel using your credential tokens. Keep `quick_tunnel = true` and `token = ""` to default to temporary TryCloudflare tunnels.
+
+---
+
 ## 📁 Repository Structure
 
 ```
