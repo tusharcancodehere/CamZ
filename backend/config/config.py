@@ -111,6 +111,17 @@ _config_data = {
         "log_level": "INFO",
         "json_logs": False,
         "port": 8000,
+    },
+    "tunnel": {
+        "enabled": False,
+        "provider": "cloudflare",
+        "autostart": False,
+        "install_if_missing": True,
+        "share_localhost": "http://127.0.0.1:8000",
+        "hostname": "",
+        "quick_tunnel": True,
+        "log_level": "info",
+        "token": "",
     }
 }
 
@@ -202,6 +213,16 @@ _config_data["system"]["log_level"] = os.getenv("CAMZ_LOG_LEVEL", _config_data["
 _config_data["system"]["json_logs"] = _env_bool(os.getenv("CAMZ_JSON_LOGS", str(_config_data["system"]["json_logs"])))
 _config_data["system"]["port"] = int(os.getenv("CAMZ_PORT", str(_config_data["system"]["port"])))
 
+_config_data["tunnel"]["enabled"] = _env_bool(os.getenv("CAMZ_TUNNEL_ENABLED", str(_config_data["tunnel"]["enabled"])))
+_config_data["tunnel"]["provider"] = os.getenv("CAMZ_TUNNEL_PROVIDER", _config_data["tunnel"]["provider"])
+_config_data["tunnel"]["autostart"] = _env_bool(os.getenv("CAMZ_TUNNEL_AUTOSTART", str(_config_data["tunnel"]["autostart"])))
+_config_data["tunnel"]["install_if_missing"] = _env_bool(os.getenv("CAMZ_TUNNEL_INSTALL_IF_MISSING", str(_config_data["tunnel"]["install_if_missing"])))
+_config_data["tunnel"]["share_localhost"] = os.getenv("CAMZ_TUNNEL_SHARE_LOCALHOST", _config_data["tunnel"]["share_localhost"])
+_config_data["tunnel"]["hostname"] = os.getenv("CAMZ_TUNNEL_HOSTNAME", _config_data["tunnel"]["hostname"])
+_config_data["tunnel"]["quick_tunnel"] = _env_bool(os.getenv("CAMZ_TUNNEL_QUICK", str(_config_data["tunnel"]["quick_tunnel"])))
+_config_data["tunnel"]["log_level"] = os.getenv("CAMZ_TUNNEL_LOG_LEVEL", _config_data["tunnel"]["log_level"])
+_config_data["tunnel"]["token"] = os.getenv("CAMZ_TUNNEL_TOKEN", _config_data["tunnel"]["token"])
+
 # Legacy environment variables support
 if "CAMZ_CAMERA_INDEX" in os.environ:
     _config_data["camera"]["source"] = os.environ["CAMZ_CAMERA_INDEX"]
@@ -248,6 +269,16 @@ MOTION_MIN_AREA = _config_data["motion"]["min_area"]
 LOG_LEVEL = _config_data["system"]["log_level"]
 JSON_LOGS = _config_data["system"]["json_logs"]
 PORT = _config_data["system"]["port"]
+
+TUNNEL_ENABLED = _config_data["tunnel"]["enabled"]
+TUNNEL_PROVIDER = _config_data["tunnel"]["provider"]
+TUNNEL_AUTOSTART = _config_data["tunnel"]["autostart"]
+TUNNEL_INSTALL_IF_MISSING = _config_data["tunnel"]["install_if_missing"]
+TUNNEL_SHARE_LOCALHOST = _config_data["tunnel"]["share_localhost"]
+TUNNEL_HOSTNAME = _config_data["tunnel"]["hostname"]
+TUNNEL_QUICK_TUNNEL = _config_data["tunnel"]["quick_tunnel"]
+TUNNEL_LOG_LEVEL = _config_data["tunnel"]["log_level"]
+TUNNEL_TOKEN = _config_data["tunnel"]["token"]
 
 # Resolve index representation for backward compatibility with older OpenCV codes
 try:

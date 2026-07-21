@@ -64,3 +64,32 @@ json_logs = false
 
 # Web server port
 port = 8000
+
+[tunnel]
+# Enable Cloudflare Tunnel support
+enabled = false
+
+# Tunnel provider (only cloudflare is currently supported)
+provider = "cloudflare"
+
+# Automatically start the tunnel service on server startup
+autostart = false
+
+# Attempt to install cloudflared package automatically if not found
+install_if_missing = true
+
+# Local endpoint address to expose through the tunnel
+share_localhost = "http://127.0.0.1:8000"
+
+# Target hostname for Named Tunnel (leave empty for Quick Tunnel)
+hostname = ""
+
+# Enable Quick Tunnel (automatically allocates random trycloudflare.com address)
+quick_tunnel = true
+
+# Log level of cloudflared process (info, debug, warning, error)
+log_level = "info"
+
+# Cloudflare Tunnel token (required only for token-driven Named Tunnels)
+token = ""
+
