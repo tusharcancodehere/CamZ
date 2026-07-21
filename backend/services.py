@@ -80,6 +80,30 @@ class CameraDisconnectedEvent(Event):
         self.error = error
 
 
+class TunnelStartedEvent(Event):
+    def __init__(self, provider: str) -> None:
+        super().__init__(data={"provider": provider})
+        self.provider = provider
+
+
+class TunnelConnectedEvent(Event):
+    def __init__(self, url: str) -> None:
+        super().__init__(data={"url": url})
+        self.url = url
+
+
+class TunnelDisconnectedEvent(Event):
+    def __init__(self, error: str) -> None:
+        super().__init__(data={"error": error})
+        self.error = error
+
+
+class TunnelRestartedEvent(Event):
+    def __init__(self, attempt: int) -> None:
+        super().__init__(data={"attempt": attempt})
+        self.attempt = attempt
+
+
 # --- Service Abstract Base ---
 
 class BaseService:
@@ -137,6 +161,7 @@ class ServiceManager:
         self.register(RecordingService)
         self.register(StreamService)
         self.register(HealthService)
+        self.register(TunnelService)
 
         # Injected initialization order
         services_in_order = [
@@ -162,12 +187,20 @@ class ServiceManager:
 
         self.state_machine.transition_to(AppState.READY, "All services active")
 
+        # Auto-start tunnel service if enabled and autostart is True
+        if self.config.TUNNEL_ENABLED and self.config.TUNNEL_AUTOSTART:
+            try:
+                self.get(TunnelService).start()
+            except Exception as exc:
+                logger.error("Failed to autostart TunnelService: %s", exc)
+
     def stop_all(self) -> None:
         """Gracefully stop all active services."""
         self.state_machine.transition_to(AppState.STOPPING, "Shutting down services")
         
         # Reverse order shutdown
         services_in_order = [
+            TunnelService,
             HealthService,
             StreamService,
             RecordingService,
@@ -1117,3 +1150,245 @@ class SlidingWindowAverage:
         if not self._samples:
             return 0.0
         return sum(self._samples) / len(self._samples)
+
+
+class TunnelService(BaseService):
+    """Manages the lifecycle, monitoring, and auto-recovery of Cloudflare Tunnel."""
+
+    def __init__(self, manager: ServiceManager) -> None:
+        super().__init__(manager)
+        self.config = manager.get(ConfigService).config
+        self.process = None
+        self._url = ""
+        self._connected = False
+        self._start_time = 0.0
+        self._crash_count = 0
+        self._shutdown_event = threading.Event()
+        self._log_history = collections.deque(maxlen=100)
+        self._monitor_thread = None
+        self._lock = threading.Lock()
+        self._backoff_delay = 1.0
+
+    def start(self) -> None:
+        super().start()
+        self._shutdown_event.clear()
+        
+        # Check if enabled in configuration
+        if not self.config.TUNNEL_ENABLED:
+            logger.info("TunnelService is disabled in configuration. Skipping startup.")
+            return
+
+        # Check binary availability, attempt auto-install if missing
+        if not self._check_and_install_binary():
+            logger.error("cloudflared binary is missing and could not be installed.")
+            return
+
+        # Start supervisor thread
+        self._monitor_thread = threading.Thread(
+            target=self._supervise_tunnel,
+            name="camz-tunnel-supervisor",
+            daemon=True
+        )
+        self._monitor_thread.start()
+        self.manager.event_bus.publish(TunnelStartedEvent(provider=self.config.TUNNEL_PROVIDER))
+        logger.info("TunnelService supervisor thread started.")
+
+    def stop(self) -> None:
+        logger.info("Stopping TunnelService...")
+        self._shutdown_event.set()
+        
+        # Terminate cloudflared process
+        with self._lock:
+            if self.process:
+                try:
+                    self.process.terminate()
+                    self.process.wait(timeout=2.0)
+                except Exception as exc:
+                    logger.warning("Failed to terminate cloudflared cleanly: %s", exc)
+                    try:
+                        self.process.kill()
+                    except Exception:
+                        pass
+                self.process = None
+                
+        # Join supervisor thread
+        if self._monitor_thread and self._monitor_thread.is_alive():
+            self._monitor_thread.join(timeout=3.0)
+        
+        self._connected = False
+        self._url = ""
+        super().stop()
+        logger.info("TunnelService stopped.")
+
+    def get_status(self) -> dict[str, Any]:
+        """Return the current tunnel status details."""
+        uptime = 0.0
+        if self._connected and self._start_time > 0.0:
+            uptime = time.monotonic() - self._start_time
+            
+        latency = 0.0
+        if self._connected and self._url:
+            # Measure connection latency to the public URL using local HTTP connection
+            import http.client
+            from urllib.parse import urlparse
+            try:
+                parsed = urlparse(self._url)
+                conn_start = time.monotonic()
+                conn = http.client.HTTPSConnection(parsed.netloc, timeout=1.5)
+                conn.request("GET", "/health")
+                resp = conn.getresponse()
+                resp.read()
+                conn.close()
+                latency = (time.monotonic() - conn_start) * 1000.0
+            except Exception:
+                pass
+
+        return {
+            "enabled": self.config.TUNNEL_ENABLED,
+            "provider": self.config.TUNNEL_PROVIDER,
+            "running": self._connected,
+            "url": self._url,
+            "uptime_seconds": int(uptime),
+            "latency_ms": round(latency, 2) if latency > 0 else None,
+            "crash_count": self._crash_count,
+        }
+
+    def _check_and_install_binary(self) -> bool:
+        """Verify binary presence in PATH. Trigger auto-installation if missing and allowed."""
+        import shutil
+        if shutil.which("cloudflared") is not None:
+            return True
+
+        if not self.config.TUNNEL_INSTALL_IF_MISSING:
+            logger.warning("cloudflared binary not found and install_if_missing is disabled.")
+            return False
+
+        logger.info("cloudflared missing. Attempting auto-installation...")
+        import subprocess
+        
+        # Check platform package manager
+        pacman = shutil.which("pacman")
+        apt = shutil.which("apt-get")
+        dnf = shutil.which("dnf")
+        
+        try:
+            if pacman:
+                logger.info("Arch Linux detected. Invoking pacman...")
+                subprocess.check_call(["sudo", "pacman", "-S", "--noconfirm", "cloudflared"])
+            elif apt:
+                logger.info("Debian/Ubuntu/RPi OS detected. Invoking apt-get...")
+                import platform
+                arch = platform.machine()
+                deb_arch = "amd64"
+                if arch == "aarch64":
+                    deb_arch = "arm64"
+                elif arch.startswith("armv7") or arch == "armv6l":
+                    deb_arch = "arm"
+                
+                url = f"https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-{deb_arch}.deb"
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix=".deb", delete=False) as tmp:
+                    tmp_path = tmp.name
+                
+                logger.info("Downloading deb package from %s to %s...", url, tmp_path)
+                subprocess.check_call(["curl", "-L", "-o", tmp_path, url])
+                subprocess.check_call(["sudo", "dpkg", "-i", tmp_path])
+                subprocess.call(["sudo", "apt-get", "install", "-f", "-y"])
+                import os
+                os.unlink(tmp_path)
+            elif dnf:
+                logger.info("Fedora detected. Invoking dnf...")
+                import platform
+                arch = platform.machine()
+                rpm_arch = "x86_64"
+                if arch == "aarch64":
+                    rpm_arch = "aarch64"
+                url = f"https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-{rpm_arch}.rpm"
+                subprocess.check_call(["sudo", "dnf", "install", "-y", url])
+            else:
+                logger.warning("No supported package manager detected. Cannot auto-install cloudflared.")
+                return False
+                
+            if shutil.which("cloudflared") is not None:
+                logger.info("cloudflared package auto-installation succeeded.")
+                return True
+        except Exception as exc:
+            logger.error("Auto-installation failed: %s", exc)
+            
+        return False
+
+    def _supervise_tunnel(self) -> None:
+        """Supervisor loop restarting cloudflared process with exponential backoff on crash."""
+        import subprocess
+        import re
+
+        while not self._shutdown_event.is_set():
+            cmd = ["cloudflared"]
+            
+            # Form arguments based on configuration
+            if self.config.TUNNEL_TOKEN:
+                cmd.extend(["tunnel", "--no-autoupdate", "run", "--token", self.config.TUNNEL_TOKEN])
+            elif self.config.TUNNEL_HOSTNAME:
+                cmd.extend(["tunnel", "run"])
+                self._url = f"https://{self.config.TUNNEL_HOSTNAME}"
+            else:
+                cmd.extend(["tunnel", "--url", self.config.TUNNEL_SHARE_LOCALHOST])
+
+            logger.info("Launching cloudflared process: %s", " ".join([c if "token" not in cmd[i-1:i] else "*****" for i, c in enumerate(cmd)]))
+            
+            try:
+                with self._lock:
+                    if self._shutdown_event.is_set():
+                        break
+                    self.process = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1
+                    )
+                
+                self._connected = False
+                url_found = False
+                
+                while True:
+                    line = self.process.stdout.readline()
+                    if not line:
+                        break
+                        
+                    self._log_history.append(line.strip())
+                    
+                    # Parse Quick Tunnel URL
+                    if not url_found and not self.config.TUNNEL_HOSTNAME:
+                        match = re.search(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com', line)
+                        if match:
+                            self._url = match.group(0)
+                            url_found = True
+                            logger.info("Cloudflare Quick Tunnel URL discovered: %s", self._url)
+
+                    # Parse connection successful logs
+                    if not self._connected and ("registered" in line or "Connection" in line and "registered" in line or "Registered tunnel connection" in line or "INF Connection" in line):
+                        self._connected = True
+                        self._start_time = time.monotonic()
+                        self._backoff_delay = 1.0
+                        self.manager.event_bus.publish(TunnelConnectedEvent(url=self._url))
+                        logger.info("Cloudflare Tunnel connected successfully.")
+                        
+                exit_code = self.process.wait()
+                logger.warning("cloudflared process terminated with exit code: %s", exit_code)
+            except Exception as exc:
+                logger.error("Exception starting/running cloudflared: %s", exc)
+
+            self._connected = False
+            self.manager.event_bus.publish(TunnelDisconnectedEvent(error="Process exited or failed to start"))
+            
+            if self._shutdown_event.is_set():
+                break
+                
+            self._crash_count += 1
+            self.manager.event_bus.publish(TunnelRestartedEvent(attempt=self._crash_count))
+            
+            logger.info("Tunnel crashed (Count: %d). Restarting in %.2fs...", self._crash_count, self._backoff_delay)
+            self._shutdown_event.wait(self._backoff_delay)
+            self._backoff_delay = min(60.0, self._backoff_delay * 2.0)
+
