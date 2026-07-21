@@ -84,6 +84,14 @@ class MotionDetector:
 
         self._frame_count += 1
 
+        # Check for global lighting change (e.g. auto-exposure or room lights switching)
+        # If > 75% of the frame changed at once, do not trigger motion
+        total_pixels = fg_mask.shape[0] * fg_mask.shape[1]
+        if total_pixels > 0:
+            fg_pixels = cv2.countNonZero(fg_mask)
+            if (fg_pixels / total_pixels) > 0.75:
+                return MotionDetectionResult(False, 0, frame)
+
         # Warmup guard: discard detections during model initialization
         if self._frame_count <= _WARMUP_FRAMES:
             return MotionDetectionResult(False, 0, frame)
@@ -108,6 +116,11 @@ class MotionDetector:
             if area < self.min_area:
                 continue
 
+            # Filter out extremely narrow/flickering noise bands (aspect ratio/dimensions)
+            x, y, cw, ch = cv2.boundingRect(contour)
+            if cw < 8 or ch < 8:
+                continue
+
             if not motion:
                 out_frame = frame.copy()
 
@@ -115,7 +128,6 @@ class MotionDetector:
             motion = True
 
             # Scale bounding box back to original frame resolution
-            x, y, cw, ch = cv2.boundingRect(contour)
             cv2.rectangle(
                 out_frame,
                 (x * scale, y * scale),

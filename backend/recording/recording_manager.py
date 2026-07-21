@@ -31,23 +31,37 @@ class RecordingManager:
         return session_id, folder / f"{session_id}.mp4"
 
     def save_metadata(self, session_id: str, video_path: Path, metadata: dict) -> None:
-        """Save session metadata to JSON."""
+        """Save session metadata to JSON atomically using a temp file."""
         json_path = video_path.with_suffix(".json")
+        temp_path = json_path.with_name(f"{json_path.name}.tmp")
         try:
-            with open(json_path, "w") as file:
+            with open(temp_path, "w") as file:
                 json.dump(metadata, file, indent=2)
+            temp_path.replace(json_path)
             logger.info("Saved metadata for session %s at %s", session_id, json_path)
         except Exception as exc:
             logger.error("Failed to save metadata for %s: %s", session_id, exc)
+            if temp_path.is_file():
+                try:
+                    temp_path.unlink()
+                except Exception:
+                    pass
 
     def save_thumbnail(self, video_path: Path, frame: np.ndarray) -> None:
-        """Save a thumbnail image for the session."""
+        """Save a thumbnail image for the session atomically using a temp file."""
         thumb_path = video_path.with_suffix(".jpg")
+        temp_path = thumb_path.with_name(f"{thumb_path.name}.tmp")
         try:
-            cv2.imwrite(str(thumb_path), frame)
+            cv2.imwrite(str(temp_path), frame)
+            temp_path.replace(thumb_path)
             logger.info("Saved thumbnail at %s", thumb_path)
         except Exception as exc:
             logger.error("Failed to save thumbnail: %s", exc)
+            if temp_path.is_file():
+                try:
+                    temp_path.unlink()
+                except Exception:
+                    pass
 
     def list_recordings(self) -> list[dict]:
         """List all recordings by loading metadata JSON files, sorted newest first."""

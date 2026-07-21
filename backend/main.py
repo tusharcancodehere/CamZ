@@ -124,10 +124,20 @@ def get_snapshots() -> list[str]:
         return []
 
 
+def _validate_safe_id(id_or_name: str) -> None:
+    """Ensure path parameters contain no directory traversal characters."""
+    if "/" in id_or_name or "\\" in id_or_name or ".." in id_or_name or id_or_name.startswith((".", "/")):
+        raise HTTPException(status_code=400, detail="Invalid parameter format")
+
+
 @app.get("/snapshots/{name}")
 def get_snapshot_file(name: str) -> FileResponse:
     """Serve a specific snapshot file."""
-    path = SNAPSHOTS_DIR / name
+    _validate_safe_id(name)
+    path = (SNAPSHOTS_DIR / name).resolve()
+    # Verify the resolved path stays inside SNAPSHOTS_DIR
+    if not path.is_relative_to(SNAPSHOTS_DIR.resolve()):
+        raise HTTPException(status_code=400, detail="Invalid parameter path")
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Snapshot not found")
     return FileResponse(path, media_type="image/jpeg")
@@ -136,7 +146,11 @@ def get_snapshot_file(name: str) -> FileResponse:
 @app.delete("/snapshots/{name}")
 def delete_snapshot_file(name: str) -> dict:
     """Delete a specific snapshot file."""
-    path = SNAPSHOTS_DIR / name
+    _validate_safe_id(name)
+    path = (SNAPSHOTS_DIR / name).resolve()
+    # Verify the resolved path stays inside SNAPSHOTS_DIR
+    if not path.is_relative_to(SNAPSHOTS_DIR.resolve()):
+        raise HTTPException(status_code=400, detail="Invalid parameter path")
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Snapshot not found")
     try:
@@ -184,6 +198,7 @@ def get_recordings() -> list[dict]:
 @app.get("/recordings/{id}")
 def get_recording(id: str) -> FileResponse:
     """Stream or download a recording video file."""
+    _validate_safe_id(id)
     path = recorder._recording_mgr.get_recording_path(id)
     if path is None or not path.is_file():
         raise HTTPException(status_code=404, detail="Recording not found")
@@ -193,6 +208,7 @@ def get_recording(id: str) -> FileResponse:
 @app.get("/recordings/{id}/metadata")
 def get_recording_metadata(id: str) -> dict:
     """Retrieve JSON metadata of a recording."""
+    _validate_safe_id(id)
     path = recorder._recording_mgr.get_metadata_path(id)
     if path is None or not path.is_file():
         raise HTTPException(status_code=404, detail="Metadata not found")
@@ -206,6 +222,7 @@ def get_recording_metadata(id: str) -> dict:
 @app.get("/recordings/{id}/thumbnail")
 def get_recording_thumbnail(id: str) -> FileResponse:
     """Retrieve JPEG thumbnail of a recording."""
+    _validate_safe_id(id)
     path = recorder._recording_mgr.get_thumbnail_path(id)
     if path is None or not path.is_file():
         raise HTTPException(status_code=404, detail="Thumbnail not found")
@@ -215,6 +232,7 @@ def get_recording_thumbnail(id: str) -> FileResponse:
 @app.delete("/recordings/{id}")
 def delete_recording(id: str) -> dict:
     """Delete a recording and its associated files."""
+    _validate_safe_id(id)
     if not recorder._recording_mgr.delete_recording(id):
         raise HTTPException(status_code=404, detail="Recording not found")
     return {"status": "deleted"}

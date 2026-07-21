@@ -282,3 +282,18 @@ def test_shutdown_while_streaming(create_camera: MagicMock) -> None:
         next(gen)
 
     assert time.monotonic() - start_time < 1.0
+
+
+def test_path_traversal_is_blocked() -> None:
+    from backend.main import _validate_safe_id
+    from fastapi import HTTPException
+
+    # Valid parameters should not raise anything
+    _validate_safe_id("2026-07-21_120000_000")
+    _validate_safe_id("snapshot_20260721_120000.jpg")
+
+    # Invalid directory traversal patterns must raise 400 Bad Request
+    for payload in ["../../etc/passwd", "..\\..\\windows", "/etc/passwd", ".hidden"]:
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_safe_id(payload)
+        assert exc_info.value.status_code == 400
