@@ -52,93 +52,103 @@ class Picamera2Camera(Picamera2Backend):
 
 
 def create_camera() -> CameraBackend:
-    """Dynamic camera factory attempting to connect backends in priority order.
+    """Camera factory creating the configured camera backend as a single source of truth."""
+    from backend.config.config import profile
+    is_rpi = profile.startswith("pi_")
+    
+    # Determine the target backend type
+    target_type = CAMERA_TYPE.lower() if CAMERA_TYPE else "auto"
+    
+    # If auto, decide based on hardware platform
+    if target_type == "auto":
+        if is_rpi:
+            target_type = "picamera2"
+        else:
+            # On non-Pi platforms, look at the source to guess the backend
+            src = CAMERA_SOURCE
+            if isinstance(src, str) and (src.startswith("rtsp://") or src.startswith("rtmp://") or src.startswith("http://") or src.startswith("https://")):
+                target_type = "rtsp"
+            elif isinstance(src, str) and (src.endswith(".mp4") or src.endswith(".avi") or src.endswith(".mkv") or src.endswith(".mov")):
+                target_type = "file"
+            else:
+                target_type = "opencv"
 
-    Priority:
-    1. Force Picamera2 if requested or on RPi.
-    2. Try source parameter (can be index string, RTSP URL, or file path).
-    3. Auto-fallback scanning OpenCV local device indices (0, 1, 2).
-    """
-    tried_diagnostics = []
+    logger.info("Initializing camera backend: %s (Resolution: %dx%d)", target_type, CAMERA_WIDTH, CAMERA_HEIGHT)
 
-    # 1. Picamera2 check
-    if USE_PICAMERA2 or CAMERA_TYPE == "picamera2":
+    if target_type == "picamera2":
         try:
-            logger.info("Attempting Picamera2 device creation...")
             return Picamera2Backend(width=CAMERA_WIDTH, height=CAMERA_HEIGHT)
         except Exception as exc:
-            msg = f"Picamera2 failed: {exc}"
-            logger.warning(msg)
-            tried_diagnostics.append(msg)
+            raise StructuredError(
+                component="camera_subsystem",
+                problem="Failed to initialize Picamera2 backend",
+                root_cause=str(exc),
+                impact="Surveillance camera feed is completely offline.",
+                suggested_fix="Verify that the ribbon cable is securely connected and Picamera2 library is installed.",
+                original_exception=exc,
+            ) from exc
 
-    # 2. Try configured source (could be integer index, RTSP URL, or local file)
-    src = CAMERA_SOURCE
-    if src:
-        # Check if URL
-        if isinstance(src, str) and (src.startswith("rtsp://") or src.startswith("rtmp://") or src.startswith("http://") or src.startswith("https://")):
-            try:
-                logger.info("Attempting RTSP Stream device creation: %s", src)
-                return RTSPBackend(rtsp_url=src, width=CAMERA_WIDTH, height=CAMERA_HEIGHT)
-            except Exception as exc:
-                msg = f"RTSP source failed: {exc}"
-                logger.warning(msg)
-                tried_diagnostics.append(msg)
-        # Check if local video file
-        elif isinstance(src, str) and (src.endswith(".mp4") or src.endswith(".avi") or src.endswith(".mkv") or src.endswith(".mov")):
-            try:
-                logger.info("Attempting Virtual File device creation: %s", src)
-                return FileBackend(file_path=src, width=CAMERA_WIDTH, height=CAMERA_HEIGHT)
-            except Exception as exc:
-                msg = f"File source failed: {exc}"
-                logger.warning(msg)
-                tried_diagnostics.append(msg)
-        # Check if integer index
-        else:
-            try:
-                idx = int(src)
-                logger.info("Attempting OpenCV device creation at index %d...", idx)
-                return OpenCVBackend(index=idx, width=CAMERA_WIDTH, height=CAMERA_HEIGHT)
-            except ValueError:
-                msg = f"OpenCV source index format invalid: {src}"
-                logger.warning(msg)
-                tried_diagnostics.append(msg)
-            except Exception as exc:
-                msg = f"OpenCV source index {src} failed: {exc}"
-                logger.warning(msg)
-                tried_diagnostics.append(msg)
-
-    # 3. Auto-fallback scanning OpenCV local device indices (0, 1, 2)
-    for idx in (0, 1, 2):
-        # Skip if already tried in step 2
+    elif target_type == "rtsp":
         try:
-            if src and int(src) == idx:
-                continue
+            return RTSPBackend(rtsp_url=CAMERA_SOURCE, width=CAMERA_WIDTH, height=CAMERA_HEIGHT)
+        except Exception as exc:
+            raise StructuredError(
+                component="camera_subsystem",
+                problem="Failed to initialize RTSP backend",
+                root_cause=str(exc),
+                impact="RTSP network stream feed is offline.",
+                suggested_fix=f"Verify that the RTSP URL '{CAMERA_SOURCE}' is valid and the network camera is reachable.",
+                original_exception=exc,
+            ) from exc
+
+    elif target_type == "file":
+        try:
+            return FileBackend(file_path=CAMERA_SOURCE, width=CAMERA_WIDTH, height=CAMERA_HEIGHT)
+        except Exception as exc:
+            raise StructuredError(
+                component="camera_subsystem",
+                problem="Failed to initialize File backend",
+                root_cause=str(exc),
+                impact="Virtual video file feed is offline.",
+                suggested_fix=f"Verify that the video file exists at '{CAMERA_SOURCE}'.",
+                original_exception=exc,
+            ) from exc
+
+    elif target_type == "opencv":
+        # Check if source is a valid integer index
+        try:
+            idx = int(CAMERA_SOURCE)
         except ValueError:
-            pass
-
+            idx = 0
+            
         try:
-            logger.info("Fallback probing OpenCV device at index %d...", idx)
             return OpenCVBackend(index=idx, width=CAMERA_WIDTH, height=CAMERA_HEIGHT)
         except Exception as exc:
-            msg = f"OpenCV fallback index {idx} failed: {exc}"
-            logger.warning(msg)
-            tried_diagnostics.append(msg)
+            # Only perform fallback scan if CAMERA_TYPE was auto (not explicitly "opencv") and on non-Pi
+            if CAMERA_TYPE == "auto":
+                logger.warning("Configured OpenCV index %d failed, scanning fallbacks...", idx)
+                for fallback_idx in (0, 1, 2):
+                    if fallback_idx == idx:
+                        continue
+                    try:
+                        logger.info("Fallback probing OpenCV device at index %d...", fallback_idx)
+                        return OpenCVBackend(index=fallback_idx, width=CAMERA_WIDTH, height=CAMERA_HEIGHT)
+                    except Exception:
+                        pass
+            raise StructuredError(
+                component="camera_subsystem",
+                problem="Failed to initialize OpenCV camera backend",
+                root_cause=str(exc),
+                impact="USB or local camera feed is offline.",
+                suggested_fix="Check if the webcam is plugged in and not locked by another process.",
+                original_exception=exc,
+            ) from exc
 
-    # If all options failed, construct a complete structured diagnostic exception
-    cause = "\n".join(tried_diagnostics)
-    
-    raise StructuredError(
-        component="camera_subsystem",
-        problem="Failed to initialize any compatible camera hardware or video feed",
-        root_cause=f"Exhausted all configured and fallback camera devices.\nDiagnostic logs:\n{cause}",
-        impact="Streaming, recording, and surveillance functionality is completely offline.",
-        recovery_attempt="Scanned Picamera2, configured camera source, and indices 0-2",
-        suggested_fix=(
-            "1. Verify that your camera device is physically connected.\n"
-            "2. Run 'lsof /dev/video*' to see if another process is locking the device.\n"
-            "3. If running on Raspberry Pi, ensure that camera access is enabled via raspi-config.\n"
-            "4. Configure a custom stream source in config.toml (e.g. RTSP or File for emulation)."
-        ),
-        doc_reference="README.md",
-        exit_code=1,
-    )
+    else:
+        raise StructuredError(
+            component="camera_subsystem",
+            problem="Unknown camera backend type configured",
+            root_cause=f"CAMERA_TYPE '{CAMERA_TYPE}' is not supported.",
+            impact="Camera initialization failed.",
+            suggested_fix="Set type to one of: 'auto', 'picamera2', 'opencv', 'rtsp', 'file' in config.toml.",
+        )
