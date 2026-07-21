@@ -15,5 +15,6 @@ psutil
 pillow
 
 python-dotenv
+httpx
 
 pytest

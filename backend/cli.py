@@ -318,28 +318,28 @@ def action_doctor(args: argparse.Namespace) -> None:
             recommendations.append(f"Port {config.PORT} is used by another application. Adjust CAMZ_PORT environment variable.")
 
     # 8. Probe camera devices
-    available = []
-    # OpenCV Probe
-    for idx in range(3):
-        cap = cv2.VideoCapture(idx)
-        if cap.isOpened():
-            available.append(f"OpenCV Index {idx}")
-            cap.release()
-    
-    # Picamera2 probe
+    from backend.camera.camera import create_camera
     try:
-        from picamera2 import Picamera2
-        p = Picamera2()
-        p.close()
-        available.append("Picamera2 (RPi camera)")
-    except Exception:
-        pass
+        camera = create_camera()
+        backend_name = camera.__class__.__name__
+        source_info = ""
+        if hasattr(camera, "index"):
+            source_info = f" (OpenCV Index {camera.index})"
+        elif hasattr(camera, "rtsp_url"):
+            source_info = " (RTSP Stream)"
+        elif hasattr(camera, "file_path"):
+            source_info = " (Virtual File)"
+        elif "Picamera2" in backend_name:
+            source_info = " (Picamera2 CSI)"
 
-    if available:
-        checks.append(("Connected Cameras", ", ".join(available), "PASS"))
-    else:
-        checks.append(("Connected Cameras", "None detected", "WARN"))
-        recommendations.append("No active cameras detected. Plug in a USB webcam or configure RTSP network feed in config.toml.")
+        checks.append(("Connected Cameras", f"{backend_name}{source_info}", "PASS"))
+        try:
+            camera.release()
+        except Exception:
+            pass
+    except Exception as e:
+        checks.append(("Connected Cameras", "None detected", "FAIL"))
+        recommendations.append(f"No active cameras detected or configuration invalid. Error: {e}")
 
     # 9. Compute Doctor health score
     score = 100

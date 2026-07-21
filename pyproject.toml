@@ -21,6 +21,7 @@ dependencies = [
     "psutil",
     "pillow",
     "python-dotenv",
+    "httpx",
 ]
 
 [project.optional-dependencies]
