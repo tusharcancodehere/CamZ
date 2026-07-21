@@ -8,7 +8,7 @@ numpy
 python-multipart
 
 aiofiles
-jinja2>=3.1.0
+jinja2>=3.1.6
 
 psutil
 
