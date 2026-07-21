@@ -31,6 +31,7 @@ from backend.services import (
     StreamService,
     StorageService,
     HealthService,
+    TunnelService,
     FrameAnalyzedEvent,
 )
 from backend.utils.errors import StructuredError
@@ -358,6 +359,38 @@ def stop_manual_recording() -> dict:
     """Stop manual recording immediately."""
     service_manager.get(RecordingService).stop_manual_recording()
     return {"status": "stopped"}
+
+
+@app.post("/tunnel/start")
+def start_tunnel() -> dict:
+    """Start the Cloudflare Tunnel service dynamically."""
+    tunnel_service = service_manager.get(TunnelService)
+    tunnel_service.config.TUNNEL_ENABLED = True
+    tunnel_service.start()
+    return {"status": "started", "tunnel": tunnel_service.get_status()}
+
+
+@app.post("/tunnel/stop")
+def stop_tunnel() -> dict:
+    """Stop the Cloudflare Tunnel service dynamically."""
+    tunnel_service = service_manager.get(TunnelService)
+    tunnel_service.stop()
+    return {"status": "stopped", "tunnel": tunnel_service.get_status()}
+
+
+@app.post("/tunnel/restart")
+def restart_tunnel() -> dict:
+    """Restart the Cloudflare Tunnel service dynamically."""
+    tunnel_service = service_manager.get(TunnelService)
+    tunnel_service.stop()
+    tunnel_service.start()
+    return {"status": "restarted", "tunnel": tunnel_service.get_status()}
+
+
+@app.get("/tunnel/status")
+def get_tunnel_status() -> dict:
+    """Retrieve the current status of the Cloudflare Tunnel service."""
+    return service_manager.get(TunnelService).get_status()
 
 
 @app.get("/settings")
