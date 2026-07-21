@@ -628,6 +628,189 @@ def action_logs(args: argparse.Namespace) -> None:
         print("\nExiting log tail.")
 
 
+def action_tunnel(args: argparse.Namespace) -> None:
+    """Delegate or control Cloudflare Tunnel operations."""
+    import httpx
+    
+    subcmd = args.tunnel_command
+    if not subcmd:
+        subcmd = "status"
+        
+    if subcmd == "logs":
+        log_path = config.LOG_FILE
+        if not log_path.is_file():
+            print_fail(f"Log file does not exist: {log_path}")
+            return
+
+        print_info(f"Scanning tunnel logs from {log_path}...")
+        found = False
+        with open(log_path, "r") as f:
+            for line in f:
+                if any(k in line.lower() for k in ("tunnel", "cloudflared")):
+                    print(line, end="")
+                    found = True
+        if not found:
+            print_warn("No tunnel logs found in main log file.")
+        return
+
+    url_map = {
+        "start": ("/tunnel/start", "POST", "Tunnel started successfully.", "Failed to start tunnel."),
+        "stop": ("/tunnel/stop", "POST", "Tunnel stopped successfully.", "Failed to stop tunnel."),
+        "restart": ("/tunnel/restart", "POST", "Tunnel restarted successfully.", "Failed to restart tunnel."),
+        "status": ("/tunnel/status", "GET", "", ""),
+    }
+    
+    path, method, success_msg, error_msg = url_map[subcmd]
+    endpoint = f"http://127.0.0.1:{config.PORT}{path}"
+    
+    try:
+        if method == "POST":
+            r = httpx.post(endpoint, timeout=5.0)
+        else:
+            r = httpx.get(endpoint, timeout=3.0)
+            
+        if r.status_code == 200:
+            data = r.json()
+            if subcmd == "status":
+                status = data
+                print("==================================================")
+                print("            Cloudflare Tunnel Status              ")
+                print("==================================================")
+                print(f"Enabled:          {status.get('enabled')}")
+                print(f"Provider:         {status.get('provider')}")
+                print(f"Running:          {status.get('running')}")
+                print(f"Public URL:       {status.get('url') or 'None'}")
+                print(f"Uptime:           {status.get('uptime_seconds')} seconds")
+                print(f"Latency:          {status.get('latency_ms') or 'N/A'} ms")
+                print(f"Crashes:          {status.get('crash_count')}")
+                print("==================================================")
+            else:
+                print_pass(success_msg)
+                if data.get("tunnel", {}).get("url"):
+                    print(f"Public URL: {data['tunnel']['url']}")
+        else:
+            print_fail(f"{error_msg} Server returned status code: {r.status_code}")
+    except Exception as e:
+        print_fail(f"Could not connect to CAMZ server (is it offline?): {e}")
+
+
+def action_share(args: argparse.Namespace) -> None:
+    """Check/Start server, start tunnel, and output URL with QR code/clipboard integration."""
+    import httpx
+    
+    # 1. Detect if CAMZ is already running
+    is_running = False
+    print_info("Checking if CAMZ server is active...")
+    try:
+        r = httpx.get(f"http://127.0.0.1:{config.PORT}/health", timeout=1.0)
+        if r.status_code == 200:
+            is_running = True
+    except Exception:
+        pass
+
+    # 2. If not running, start CAMZ in background
+    if not is_running:
+        print_info("CAMZ server is offline. Starting in background...")
+        class DaemonArgs:
+            daemon = True
+        action_start(DaemonArgs())
+    else:
+        print_pass("✓ CAMZ Running")
+
+    # 3. Wait until /health reports READY
+    print_info("Waiting for CAMZ health status to be READY...")
+    for _ in range(30):
+        try:
+            r = httpx.get(f"http://127.0.0.1:{config.PORT}/health", timeout=1.5)
+            if r.status_code == 200:
+                data = r.json()
+                if data.get("app_state") == "ready" or data.get("status") == "ok":
+                    break
+        except Exception:
+            pass
+        time.sleep(0.5)
+
+    # 4. Start Cloudflare Tunnel
+    print_info("Connecting Cloudflare Tunnel...")
+    try:
+        r = httpx.post(f"http://127.0.0.1:{config.PORT}/tunnel/start", timeout=5.0)
+        if r.status_code != 200:
+            print_fail("Failed to start tunnel via API.")
+            sys.exit(1)
+    except Exception as e:
+        print_fail(f"Could not connect to CAMZ API to start tunnel: {e}")
+        sys.exit(1)
+
+    # 5. Wait until public URL is available
+    print_info("Awaiting public Tunnel URL allocation...")
+    url = ""
+    for _ in range(60):
+        try:
+            r = httpx.get(f"http://127.0.0.1:{config.PORT}/tunnel/status", timeout=1.0)
+            if r.status_code == 200:
+                status = r.json()
+                if status.get("running") and status.get("url"):
+                    url = status.get("url")
+                    break
+        except Exception:
+            pass
+        time.sleep(0.5)
+
+    if not url:
+        print_fail("Failed to obtain a public URL from Cloudflare. Check tunnel logs.")
+        sys.exit(1)
+
+    print_pass("✓ Cloudflare Tunnel Connected")
+    print()
+    print("Public URL:")
+    print(url)
+    print()
+
+    # 6. Generate a terminal QR code when supported
+    try:
+        import qrcode
+        qr = qrcode.QRCode()
+        qr.add_data(url)
+        qr.make(fit=True)
+        print("QR Code:")
+        qr.print_ascii(invert=True)
+        print()
+    except Exception:
+        print_info("Install 'qrcode' to display a terminal QR code: pip install qrcode")
+        print()
+
+    # 7. Copy the URL to the clipboard when supported
+    copied = False
+    try:
+        import pyperclip
+        pyperclip.copy(url)
+        copied = True
+    except Exception:
+        # Try system clipboard commands
+        import shutil
+        try:
+            if platform.system() == "Linux":
+                if shutil.which("xclip"):
+                    subprocess.run(["xclip", "-selection", "clipboard"], input=url.encode("utf-8"), check=True)
+                    copied = True
+                elif shutil.which("xsel"):
+                    subprocess.run(["xsel", "--clipboard", "--input"], input=url.encode("utf-8"), check=True)
+                    copied = True
+            elif platform.system() == "Darwin":
+                subprocess.run(["pbcopy"], input=url.encode("utf-8"), check=True)
+                copied = True
+            elif platform.system() == "Windows":
+                subprocess.run(["clip"], input=url.encode("utf-8"), shell=True, check=True)
+                copied = True
+        except Exception:
+            pass
+
+    if copied:
+        print("Clipboard:")
+        print("URL copied successfully.")
+        print()
+
+
 def action_clean(args: argparse.Namespace) -> None:
     """Remove cache, temporary files, old logs and standard cache items."""
     print_info("Cleaning temporary and cache assets...")
@@ -723,6 +906,18 @@ def main() -> None:
     # Command: update
     subparsers.add_parser("update", help="Fetch repository updates, pip requirements and rebuild frontend")
 
+    # Command: tunnel
+    tunnel_parser = subparsers.add_parser("tunnel", help="Control and check the Cloudflare Tunnel service")
+    tunnel_subparsers = tunnel_parser.add_subparsers(dest="tunnel_command", required=False)
+    tunnel_subparsers.add_parser("start", help="Start the Cloudflare Tunnel service")
+    tunnel_subparsers.add_parser("stop", help="Stop the Cloudflare Tunnel service")
+    tunnel_subparsers.add_parser("restart", help="Restart the Cloudflare Tunnel service")
+    tunnel_subparsers.add_parser("status", help="Get the Cloudflare Tunnel service status")
+    tunnel_subparsers.add_parser("logs", help="View recent logs for the Cloudflare Tunnel service")
+
+    # Command: share
+    subparsers.add_parser("share", help="Expose local stream over secure public URL via Cloudflare Tunnel")
+
     # Parse and delegate
     args = parser.parse_args()
 
@@ -739,6 +934,8 @@ def main() -> None:
         "logs": action_logs,
         "clean": action_clean,
         "update": action_update,
+        "tunnel": action_tunnel,
+        "share": action_share,
     }
 
     if args.command in actions:
