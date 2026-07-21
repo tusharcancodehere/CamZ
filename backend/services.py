@@ -188,7 +188,8 @@ class ServiceManager:
         self.state_machine.transition_to(AppState.READY, "All services active")
 
         # Auto-start tunnel service if enabled and autostart is True
-        if self.config.TUNNEL_ENABLED and self.config.TUNNEL_AUTOSTART:
+        from backend.config import config as cfg
+        if cfg.TUNNEL_ENABLED and cfg.TUNNEL_AUTOSTART:
             try:
                 self.get(TunnelService).start()
             except Exception as exc:
