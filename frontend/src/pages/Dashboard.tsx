@@ -10,6 +10,10 @@ import {
   Cpu,
   Clock,
   Shield,
+  ExternalLink,
+  Copy,
+  RefreshCw,
+  Link,
 } from 'lucide-react'
 
 export const Dashboard: React.FC = () => {
@@ -38,6 +42,16 @@ export const Dashboard: React.FC = () => {
     const hrs = Math.floor(sec / 3600)
     const mins = Math.floor((sec % 3600) / 60)
     return `${hrs}h ${mins}m`
+  }
+
+  const formatTunnelUptime = (sec: number) => {
+    if (!sec) return '0s'
+    const hrs = Math.floor(sec / 3600)
+    const mins = Math.floor((sec % 3600) / 60)
+    const secs = sec % 60
+    if (hrs > 0) return `${hrs}h ${mins}m ${secs}s`
+    if (mins > 0) return `${mins}m ${secs}s`
+    return `${secs}s`
   }
 
   const handleAction = async (endpoint: string, successMsg: string, errorMsg: string, method = 'POST') => {
@@ -203,51 +217,179 @@ export const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Recent Activity Timeline */}
-        <div className="p-5 rounded-2xl border border-slate-900 bg-slate-950/40 flex flex-col gap-4">
-          <div className="flex items-center justify-between border-b border-slate-900 pb-3">
-            <span className="text-sm font-semibold text-slate-200">System Diagnostics</span>
-            <button
-              onClick={() => setActiveTab('health')}
-              className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
-            >
-              Details
-            </button>
+        {/* Recent Activity Timeline & Cloudflare Tunnel Card */}
+        <div className="space-y-6 flex flex-col">
+          {/* Recent Activity Timeline */}
+          <div className="p-5 rounded-2xl border border-slate-900 bg-slate-950/40 flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-slate-900 pb-3">
+              <span className="text-sm font-semibold text-slate-200">System Diagnostics</span>
+              <button
+                onClick={() => setActiveTab('health')}
+                className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+              >
+                Details
+              </button>
+            </div>
+
+            <div className="flex-1 space-y-4">
+              {/* Camera Diagnostic */}
+              <div className="flex items-start gap-3">
+                <div className={`h-2 w-2 rounded-full mt-1.5 ${health?.camera?.status === 'active' ? 'bg-emerald-400' : 'bg-rose-500 animate-pulse'}`} />
+                <div className="flex-1 flex flex-col gap-0.5">
+                  <span className="text-xs font-semibold text-slate-200">Camera Connection</span>
+                  <span className="text-[10px] text-slate-500">
+                    {health?.camera?.status === 'active' ? 'Connected & capturing frames' : 'Camera offline/disconnected'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Storage Diagnostic */}
+              <div className="flex items-start gap-3">
+                <div className="h-2 w-2 rounded-full bg-emerald-400 mt-1.5" />
+                <div className="flex-1 flex flex-col gap-0.5">
+                  <span className="text-xs font-semibold text-slate-200">Storage Controller</span>
+                  <span className="text-[10px] text-slate-500">
+                    Storage quota and automatic cleanups active
+                  </span>
+                </div>
+              </div>
+
+              {/* Log Diagnostic */}
+              <div className="flex items-start gap-3">
+                <div className="h-2 w-2 rounded-full bg-emerald-400 mt-1.5" />
+                <div className="flex-1 flex flex-col gap-0.5">
+                  <span className="text-xs font-semibold text-slate-200">Log Handler</span>
+                  <span className="text-[10px] text-slate-500">
+                    Monitoring camera log stream for errors
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div className="flex-1 space-y-4">
-            {/* Camera Diagnostic */}
-            <div className="flex items-start gap-3">
-              <div className={`h-2 w-2 rounded-full mt-1.5 ${health?.camera?.status === 'active' ? 'bg-emerald-400' : 'bg-rose-500 animate-pulse'}`} />
-              <div className="flex-1 flex flex-col gap-0.5">
-                <span className="text-xs font-semibold text-slate-200">Camera Connection</span>
-                <span className="text-[10px] text-slate-500">
-                  {health?.camera?.status === 'active' ? 'Connected & capturing frames' : 'Camera offline/disconnected'}
+          {/* Cloudflare Tunnel Card */}
+          <div className="p-5 rounded-2xl border border-slate-900 bg-slate-950/40 flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-slate-900 pb-3">
+              <div className="flex items-center gap-2">
+                <Link className="h-4 w-4 text-sky-400" />
+                <span className="text-sm font-semibold text-slate-200">Cloudflare Tunnel</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className={`h-2 w-2 rounded-full ${health?.tunnel?.running ? 'bg-emerald-500 animate-pulse' : 'bg-slate-600'}`} />
+                <span className="text-xs font-semibold text-slate-300">
+                  {health?.tunnel?.running ? 'Connected' : 'Disconnected'}
                 </span>
               </div>
             </div>
 
-            {/* Storage Diagnostic */}
-            <div className="flex items-start gap-3">
-              <div className="h-2 w-2 rounded-full bg-emerald-400 mt-1.5" />
-              <div className="flex-1 flex flex-col gap-0.5">
-                <span className="text-xs font-semibold text-slate-200">Storage Controller</span>
-                <span className="text-[10px] text-slate-500">
-                  Storage quota and automatic cleanups active
-                </span>
-              </div>
-            </div>
+            {health?.tunnel?.running ? (
+              <div className="space-y-4">
+                {/* Public URL Box */}
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[10px] text-slate-500 font-semibold tracking-wider uppercase">Public URL</span>
+                  <div className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-800 bg-slate-950">
+                    <span className="text-xs text-sky-400 font-mono select-all truncate flex-1">{health.tunnel.url}</span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(health.tunnel.url);
+                        addNotification('Tunnel URL copied', 'success');
+                      }}
+                      className="p-1.5 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition-colors"
+                      title="Copy URL"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
+                    <a
+                      href={health.tunnel.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1.5 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-sky-400 transition-colors"
+                      title="Open URL"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </div>
+                </div>
 
-            {/* Log Diagnostic */}
-            <div className="flex items-start gap-3">
-              <div className="h-2 w-2 rounded-full bg-emerald-400 mt-1.5" />
-              <div className="flex-1 flex flex-col gap-0.5">
-                <span className="text-xs font-semibold text-slate-200">Log Handler</span>
-                <span className="text-[10px] text-slate-500">
-                  Monitoring camera log stream for errors
-                </span>
+                {/* Tunnel Details & QR Code */}
+                <div className="flex items-center gap-4">
+                  {/* Info stats */}
+                  <div className="flex-1 space-y-2">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-500">Uptime:</span>
+                      <span className="font-mono text-slate-300">{formatTunnelUptime(health.tunnel.uptime_seconds)}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-500">Latency:</span>
+                      <span className="font-mono text-slate-300">
+                        {health.tunnel.latency_ms ? `${health.tunnel.latency_ms} ms` : 'Measuring...'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-500">Crashes:</span>
+                      <span className="font-mono text-slate-300">{health.tunnel.crash_count || 0}</span>
+                    </div>
+                  </div>
+
+                  {/* QR code */}
+                  <div className="relative group rounded-lg overflow-hidden border border-slate-800 bg-white p-1 h-20 w-20 flex items-center justify-center shadow-lg shadow-black/40">
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(health.tunnel.url)}`}
+                      alt="Tunnel QR Code"
+                      className="h-full w-full"
+                    />
+                  </div>
+                </div>
+
+                {/* Action button */}
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await fetch('/tunnel/restart', { method: 'POST' });
+                      if (res.ok) {
+                        addNotification('Tunnel restart triggered', 'success');
+                      } else {
+                        addNotification('Failed to restart tunnel', 'error');
+                      }
+                    } catch {
+                      addNotification('Failed to restart tunnel', 'error');
+                    }
+                  }}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-800 py-2 text-xs font-semibold text-slate-200 transition-colors"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Restart Tunnel
+                </button>
               </div>
-            </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-6 text-center text-slate-500 gap-2">
+                <Link className="h-8 w-8 text-slate-700" />
+                <div className="text-xs">
+                  <p className="font-medium text-slate-400">Tunnel Offline</p>
+                  <p className="text-[10px] mt-0.5">Enable and start the tunnel using CLI or config.toml.</p>
+                </div>
+                {health?.tunnel?.enabled && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await fetch('/tunnel/start', { method: 'POST' });
+                        if (res.ok) {
+                          addNotification('Tunnel startup requested', 'success');
+                        } else {
+                          addNotification('Failed to start tunnel', 'error');
+                        }
+                      } catch {
+                        addNotification('Failed to start tunnel', 'error');
+                      }
+                    }}
+                    className="mt-3 flex items-center gap-2 rounded-xl bg-sky-500 hover:bg-sky-600 px-4 py-2 text-xs font-semibold text-slate-950 transition-colors shadow-lg shadow-sky-500/10"
+                  >
+                    <Play className="h-3.5 w-3.5" />
+                    Start Tunnel
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>

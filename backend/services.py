@@ -1052,6 +1052,7 @@ class HealthService(BaseService):
         recording_service = self.manager.get(RecordingService)
         storage_service = self.manager.get(StorageService)
         stream_service = self.manager.get(StreamService)
+        tunnel_service = self.manager.get(TunnelService)
 
         camera_opened = False
         if camera_service.camera is not None:
@@ -1103,7 +1104,8 @@ class HealthService(BaseService):
                 "encode_fps": stream_metrics["encode_fps"],
                 "avg_latency_ms": stream_metrics["avg_latency_ms"],
                 "streaming_clients": int(stream_metrics["client_count"]),
-            }
+            },
+            "tunnel": tunnel_service.get_status()
         }
 
 
