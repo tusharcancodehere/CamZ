@@ -25,6 +25,12 @@ class RecordingHealth:
 
     active: bool
     path: str | None
+    queue_size: int
+    storage_used_bytes: int
+    storage_free_bytes: int
+    total_recordings: int
+    current_session_length_seconds: float
+    recorder_fps: float
 
 
 @dataclass(frozen=True)
@@ -40,6 +46,18 @@ class SystemHealth:
 
 
 @dataclass(frozen=True)
+class PipelineMetrics:
+    """Decoupled streaming pipeline performance metrics."""
+
+    capture_fps: float
+    detection_fps: float
+    encoding_fps: float
+    streaming_fps: float
+    avg_encode_time_ms: float
+    avg_latency_ms: float
+
+
+@dataclass(frozen=True)
 class HealthReport:
     """Complete health payload returned by ``/health``."""
 
@@ -47,6 +65,7 @@ class HealthReport:
     camera: CameraHealth
     recording: RecordingHealth
     system: SystemHealth
+    pipeline: PipelineMetrics
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the report to a JSON-compatible dictionary."""
@@ -62,6 +81,7 @@ def build_health_report(
     camera_status = camera_manager.get_status()
     memory = read_memory_stats()
     overall_status = "ok" if camera_status.state == CameraState.ACTIVE else "degraded"
+    pipeline_metrics = camera_manager.get_pipeline_metrics()
 
     return HealthReport(
         status=overall_status,
@@ -72,7 +92,13 @@ def build_health_report(
         ),
         recording=RecordingHealth(
             active=recorder.is_recording,
-            path=str(recorder.current_path) if recorder.current_path else None,
+            path=str(recorder._video_path) if recorder._video_path else None,
+            queue_size=recorder.queue_size,
+            storage_used_bytes=recorder._storage_mgr.get_used_bytes(),
+            storage_free_bytes=recorder._storage_mgr.get_free_bytes(),
+            total_recordings=len(recorder._recording_mgr.list_recordings()),
+            current_session_length_seconds=round(recorder.current_session_length, 2),
+            recorder_fps=round(recorder.recorder_fps, 2),
         ),
         system=SystemHealth(
             uptime_seconds=round(uptime.seconds, 2),
@@ -81,5 +107,13 @@ def build_health_report(
             memory_total_mb=round(memory.total_mb, 2),
             memory_percent=round(memory.percent, 2),
             temperature_c=round(temp, 2) if (temp := read_temperature_c()) is not None else None,
+        ),
+        pipeline=PipelineMetrics(
+            capture_fps=pipeline_metrics["capture_fps"],
+            detection_fps=pipeline_metrics["detection_fps"],
+            encoding_fps=pipeline_metrics["encoding_fps"],
+            streaming_fps=pipeline_metrics["streaming_fps"],
+            avg_encode_time_ms=pipeline_metrics["avg_encode_time_ms"],
+            avg_latency_ms=pipeline_metrics["avg_latency_ms"],
         ),
     )

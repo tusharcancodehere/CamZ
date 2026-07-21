@@ -90,3 +90,20 @@ def read_temperature_c() -> float | None:
     except (OSError, ValueError):
         return None
     return milli_c / 1000.0
+
+
+class SlidingWindowAverage:
+    """Sliding-window average tracker for rolling metrics."""
+
+    def __init__(self, window_size: int = 30) -> None:
+        from collections import deque
+        self._samples: deque[float] = deque(maxlen=window_size)
+
+    def add(self, val: float) -> None:
+        self._samples.append(val)
+
+    @property
+    def average(self) -> float:
+        if not self._samples:
+            return 0.0
+        return sum(self._samples) / len(self._samples)

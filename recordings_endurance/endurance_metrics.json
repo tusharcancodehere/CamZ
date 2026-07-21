@@ -1,0 +1,50 @@
+[
+  {
+    "timestamp": "2026-07-21T04:59:18.776696+00:00",
+    "cpu_percent": 0.0,
+    "ram_mb": 159.85,
+    "thread_count": 17,
+    "open_fds": 90,
+    "queue_depth": 0,
+    "recorder_fps": 20.0,
+    "disk_used_bytes": 3880925,
+    "total_recordings": 1,
+    "minute": 1
+  },
+  {
+    "timestamp": "2026-07-21T05:00:18.877890+00:00",
+    "cpu_percent": 0.0,
+    "ram_mb": 160.75,
+    "thread_count": 17,
+    "open_fds": 90,
+    "queue_depth": 0,
+    "recorder_fps": 20.0,
+    "disk_used_bytes": 8572531,
+    "total_recordings": 2,
+    "minute": 2
+  },
+  {
+    "timestamp": "2026-07-21T05:01:18.979112+00:00",
+    "cpu_percent": 0.0,
+    "ram_mb": 160.27,
+    "thread_count": 17,
+    "open_fds": 90,
+    "queue_depth": 0,
+    "recorder_fps": 20.0,
+    "disk_used_bytes": 13264138,
+    "total_recordings": 3,
+    "minute": 3
+  },
+  {
+    "timestamp": "2026-07-21T05:02:19.080472+00:00",
+    "cpu_percent": 0.0,
+    "ram_mb": 160.27,
+    "thread_count": 17,
+    "open_fds": 90,
+    "queue_depth": 0,
+    "recorder_fps": 20.0,
+    "disk_used_bytes": 17867297,
+    "total_recordings": 4,
+    "minute": 4
+  }
+]

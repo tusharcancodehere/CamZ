@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 
 import cv2
@@ -20,8 +21,13 @@ class MotionDetector:
         self.threshold = threshold
         self.min_area = min_area
         self.previous_gray: np.ndarray | None = None
+        self._lock = threading.Lock()
 
     def analyze(self, frame: np.ndarray) -> MotionDetectionResult:
+        with self._lock:
+            return self._analyze_unlocked(frame)
+
+    def _analyze_unlocked(self, frame: np.ndarray) -> MotionDetectionResult:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         gray = cv2.GaussianBlur(gray, (21, 21), 0)
 
@@ -36,13 +42,16 @@ class MotionDetector:
 
         motion = False
         significant = 0
+        out_frame = frame
         for contour in contours:
             if cv2.contourArea(contour) < self.min_area:
                 continue
+            if not motion:
+                out_frame = frame.copy()
             significant += 1
             motion = True
             x, y, w, h = cv2.boundingRect(contour)
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            cv2.rectangle(out_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
         self.previous_gray = gray
-        return MotionDetectionResult(motion, significant, frame)
+        return MotionDetectionResult(motion, significant, out_frame)

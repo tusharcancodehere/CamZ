@@ -77,3 +77,92 @@ def test_camera_manager_recovers_in_background(create_camera: MagicMock) -> None
     assert frame.shape == (48, 64, 3)
 
     manager.shutdown()
+
+
+def test_latest_frame_buffer_basic() -> None:
+    from camera_manager import LatestBuffer
+    buf = LatestBuffer()
+
+    frame, version, timestamp = buf.get()
+    assert frame is None
+    assert version == 0
+    assert timestamp == 0.0
+
+    f1 = np.ones((48, 64, 3), dtype=np.uint8)
+    buf.put(f1, 1.23)
+
+    frame, version, timestamp = buf.get()
+    assert np.array_equal(frame, f1)
+    assert version == 1
+    assert timestamp == 1.23
+
+    buf.clear()
+    frame, version, timestamp = buf.get()
+    assert frame is None
+    assert version == 2
+    assert timestamp == 0.0
+
+
+def test_latest_frame_buffer_concurrent() -> None:
+    import threading
+    from camera_manager import LatestBuffer
+    buf = LatestBuffer()
+    errors: list[Exception] = []
+
+    def writer() -> None:
+        try:
+            for i in range(100):
+                buf.put(np.ones((48, 64, 3), dtype=np.uint8) * i, float(i))
+        except Exception as exc:
+            errors.append(exc)
+
+    def reader() -> None:
+        try:
+            for _ in range(200):
+                frame, version, timestamp = buf.get()
+                if frame is not None:
+                    _ = frame[0, 0, 0]
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=writer),
+        threading.Thread(target=reader),
+        threading.Thread(target=reader),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []
+
+
+@patch("camera_manager.create_camera")
+def test_camera_manager_concurrent_reads(create_camera: MagicMock) -> None:
+    import threading
+    create_camera.return_value = FakeCamera()
+    manager = CameraManager(recovery_interval_seconds=0.05)
+    manager.start()
+
+    errors: list[Exception] = []
+    frames_read: list[np.ndarray] = []
+
+    def worker() -> None:
+        try:
+            for _ in range(50):
+                frame = manager.read()
+                frames_read.append(frame)
+                time.sleep(0.01)
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    manager.shutdown()
+    assert errors == []
+    assert len(frames_read) == 200
