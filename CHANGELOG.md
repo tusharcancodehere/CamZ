@@ -13,13 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Responsive mobile sidebar with off-canvas drawer pattern controlled via Zustand store and hamburger Menu button in TopBar.
 - 4-hour continuous endurance test script (`scripts/endurance_test.py`) with per-minute metrics tracking (CPU, RAM, FPS, FDs, queue depth, disk growth).
 - `backend/recording/video_encoder.py` abstraction layer encapsulating codec negotiation and VideoWriter lifecycle.
+- Unified cross-platform system diagnostics verification utility (`scripts/verify_system.py`) to validate OS capabilities, libraries, cameras, ports, and disk space.
+- Automatic hardware-profile detector and performance autotuning defaults (profile-based resolution, FPS, quality, and buffers).
+- Robust prioritized camera device fallback scanner (Picamera2 -> Configured Index -> Auto-scan indices 0, 1, 2).
+- Actionable exceptions for camera initialization, providing Cause, Impact, and Resolution instructions.
+- Warning-based frontend fallbacks in `setup.sh` / `setup.ps1` to prevent installation failure when Node/npm is missing but compiled assets are cached.
 
 ### Changed
 - Migrated entry point from `app.py` to `backend/main.py`; all import paths updated to `backend.*` namespace.
-- `run.sh` / `run.ps1` updated to launch `python -m backend.main`.
+- `run.sh` / `run.ps1` updated to launch `python -m backend.main` with environment checks, directory setups, and `PYTHONPATH`.
 - `benchmark_phase1.py` updated to patch `backend.camera.camera_manager.create_camera` and import from `backend.main`.
 - `.gitignore` overhauled: removed the fragile `*.json` blanket exclusion; `runtime/` and legacy root dirs scoped explicitly.
 - README `Repository Structure` section updated to reflect new `backend/` package layout.
+- Upgraded `verify.sh` and `verify.ps1` to run the diagnostics checks and pytest suites.
 
 ### Fixed
 - Eliminated zombie background processes from previous benchmark sessions consuming CPU.

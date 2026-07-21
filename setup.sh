@@ -29,16 +29,23 @@ python scripts/detect_platform.py
 if command -v npm &> /dev/null; then
     echo "Node.js detected. Installing frontend packages..."
     cd frontend
-    npm install
-    echo "Compiling frontend assets..."
-    npm run build
+    if npm install && npm run build; then
+        echo "[SUCCESS] Frontend compiled successfully."
+    else
+        echo "[WARN] Frontend build failed. Trying to proceed..."
+    fi
     cd ..
-    echo "[SUCCESS] Frontend compiled successfully."
 else
     echo "[WARN] npm is not installed. Skipping frontend rebuild."
     if [ ! -d "frontend/dist" ]; then
-        echo "[ERROR] Precompiled frontend/dist not found. Please install Node.js and build the frontend."
-        exit 1
+        echo "======================================================================"
+        echo "[WARNING] Precompiled frontend assets are missing under 'frontend/dist',"
+        echo "          and 'npm' is not available to build them automatically."
+        echo "          The backend will start, but the web UI cannot be served."
+        echo "ACTION REQUIRED: Please install Node.js & npm and run:"
+        echo "  cd frontend && npm install && npm run build"
+        echo "  to build the frontend UI."
+        echo "======================================================================"
     else
         echo "[INFO] Using existing precompiled frontend assets under frontend/dist."
     fi

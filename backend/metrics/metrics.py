@@ -81,15 +81,29 @@ def read_memory_stats() -> MemoryStats:
 
 
 def read_temperature_c() -> float | None:
-    """Return SoC temperature in Celsius when available on Linux."""
+    """Return SoC temperature in Celsius when available on Linux or other systems."""
     thermal_path = Path("/sys/class/thermal/thermal_zone0/temp")
-    if not thermal_path.is_file():
-        return None
-    try:
-        milli_c = int(thermal_path.read_text().strip())
-    except (OSError, ValueError):
-        return None
-    return milli_c / 1000.0
+    if thermal_path.is_file():
+        try:
+            milli_c = int(thermal_path.read_text().strip())
+            return milli_c / 1000.0
+        except (OSError, ValueError):
+            pass
+
+    # Try psutil sensors
+    if hasattr(psutil, "sensors_temperatures"):
+        try:
+            temps = psutil.sensors_temperatures()
+            for key in ["cpu_thermal", "cpu-thermal", "coretemp", "soc_thermal"]:
+                if key in temps and temps[key]:
+                    return temps[key][0].current
+            # Fallback to the first available temperature sensor
+            for name, entries in temps.items():
+                if entries:
+                    return entries[0].current
+        except Exception:
+            pass
+    return None
 
 
 class SlidingWindowAverage:

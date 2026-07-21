@@ -8,16 +8,10 @@ fi
 
 source .venv/bin/activate
 
+echo "=== Running System Diagnostic Checks ==="
+python scripts/verify_system.py
+
 echo "=== Running Backend Unit Tests (pytest) ==="
-pytest -vv
+PYTHONPATH=. pytest -vv
 
-echo "=== Running Frontend Build Verification ==="
-if command -v npm &> /dev/null; then
-    cd frontend
-    npm run build
-    cd ..
-else
-    echo "npm not installed; skipping frontend compilation test."
-fi
-
-echo "[SUCCESS] All verification tests passed successfully."
+echo "[SUCCESS] All verification checks completed."

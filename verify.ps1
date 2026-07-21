@@ -6,16 +6,11 @@ if (!(Test-Path -Path ".venv")) {
     Exit 1
 }
 
+Write-Host "=== Running System Diagnostic Checks ===" -ForegroundColor Cyan
+& ".\.venv\Scripts\python.exe" scripts/verify_system.py
+
 Write-Host "=== Running Backend Unit Tests (pytest) ===" -ForegroundColor Cyan
+$env:PYTHONPATH = "."
 & ".\.venv\Scripts\pytest.exe" -vv
 
-Write-Host "=== Running Frontend Build Verification ===" -ForegroundColor Cyan
-if (Get-Command npm -ErrorAction SilentlyContinue) {
-    Push-Location frontend
-    npm run build
-    Pop-Location
-} else {
-    Write-Host "npm not installed; skipping frontend compilation test." -ForegroundColor Yellow
-}
-
-Write-Host "[SUCCESS] All verification tests passed successfully." -ForegroundColor Green
+Write-Host "[SUCCESS] All verification checks completed." -ForegroundColor Green

@@ -35,7 +35,8 @@ def test_uptime_tracker_increases_over_time() -> None:
 
 
 def test_read_temperature_returns_none_when_missing() -> None:
-    with patch("backend.metrics.metrics.Path.is_file", return_value=False):
+    with patch("backend.metrics.metrics.Path.is_file", return_value=False), \
+         patch("backend.metrics.metrics.psutil.sensors_temperatures", side_effect=AttributeError):
         assert read_temperature_c() is None
 
 

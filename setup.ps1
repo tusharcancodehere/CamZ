@@ -28,16 +28,26 @@ Write-Host "Running system capability detection..." -ForegroundColor Cyan
 if (Get-Command npm -ErrorAction SilentlyContinue) {
     Write-Host "Node.js detected. Installing frontend packages..." -ForegroundColor Cyan
     Push-Location frontend
-    npm install
-    Write-Host "Compiling frontend assets..." -ForegroundColor Cyan
-    npm run build
+    try {
+        npm install
+        Write-Host "Compiling frontend assets..." -ForegroundColor Cyan
+        npm run build
+        Write-Host "[SUCCESS] Frontend compiled successfully." -ForegroundColor Green
+    } catch {
+        Write-Warning "Frontend build failed. Trying to proceed..."
+    }
     Pop-Location
-    Write-Host "[SUCCESS] Frontend compiled successfully." -ForegroundColor Green
 } else {
     Write-Warning "npm is not installed. Skipping frontend rebuild."
     if (!(Test-Path -Path "frontend/dist")) {
-        Write-Error "Precompiled frontend/dist not found. Please install Node.js and build the frontend."
-        Exit 1
+        Write-Warning "======================================================================"
+        Write-Warning "Precompiled frontend assets are missing under 'frontend/dist',"
+        Write-Warning "and 'npm' is not available to build them automatically."
+        Write-Warning "The backend will start, but the web UI cannot be served."
+        Write-Warning "ACTION REQUIRED: Please install Node.js & npm and run:"
+        Write-Warning "  cd frontend; npm install; npm run build"
+        Write-Warning "  to build the frontend UI."
+        Write-Warning "======================================================================"
     } else {
         Write-Host "[INFO] Using existing precompiled frontend assets under frontend/dist." -ForegroundColor Yellow
     }

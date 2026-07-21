@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 
 from backend.camera.camera import CameraError, CameraSource, create_camera
-from backend.config.config import CAMERA_RECOVERY_INTERVAL_SECONDS, STREAM_FPS
+from backend.config.config import CAMERA_RECOVERY_INTERVAL_SECONDS, STREAM_FPS, CAMZ_JPEG_QUALITY
 from backend.metrics.metrics import FPSCounter, SlidingWindowAverage
 
 
@@ -352,7 +352,7 @@ class CameraManager:
             last_version = version
 
             start_encode = time.monotonic()
-            ok, buffer = cv2.imencode(".jpg", frame)
+            ok, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, CAMZ_JPEG_QUALITY])
             encode_time_ms = (time.monotonic() - start_encode) * 1000.0
 
             if ok:
