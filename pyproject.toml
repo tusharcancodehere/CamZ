@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "camz"
+version = "1.0.0"
+description = "Production-grade camera streaming and recording server"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+dependencies = [
+    "fastapi>=0.115.0",
+    "starlette>=0.27.0,<2.0.0",
+    "uvicorn[standard]>=0.30.0",
+    "opencv-python-headless",
+    "numpy",
+    "python-multipart",
+    "aiofiles",
+    "jinja2>=3.1.0",
+    "psutil",
+    "pillow",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "httpx>=0.24.0",
+]
+
+[project.scripts]
+camz = "backend.cli:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = false
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

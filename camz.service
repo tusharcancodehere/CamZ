@@ -1,0 +1,17 @@
+[Unit]
+Description=CAMZ Surveillance and Recording Server
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/CAMZ
+ExecStart=/home/pi/CAMZ/camz start
+Restart=always
+RestartSec=5s
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=inherit
+StandardError=inherit
+
+[Install]
+WantedBy=multi-user.target

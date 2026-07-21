@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# CAMZ unified platform CLI wrapper for Linux and macOS
+
+set -e
+
+# Resolve the absolute path to the directory hosting this script
+BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$BASE_DIR"
+
+# 1. Auto-create virtual environment if missing
+if [ ! -d ".venv" ]; then
+    echo "[INFO] Creating Python virtual environment in .venv..."
+    python3 -m venv .venv
+    
+    # Activate and install base/core dependencies
+    source .venv/bin/activate
+    pip install -U pip setuptools wheel
+    
+    if [ -f "requirements.txt" ]; then
+        echo "[INFO] Installing requirements.txt packages..."
+        pip install -r requirements.txt
+    fi
+fi
+
+# 2. Forward arguments directly to python CLI module
+PYTHONPATH=. .venv/bin/python -m backend.cli "$@"

@@ -1,84 +1,154 @@
 from __future__ import annotations
 
+import asyncio
+import datetime
 import logging
 import time
 import json
 from contextlib import asynccontextmanager
 
 import cv2
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from backend.camera.camera import CameraError
-from backend.camera.camera_manager import CameraManager
 from backend.config.config import (
     SNAPSHOTS_DIR,
     STATIC_DIR,
     TEMPLATES_DIR,
     STREAM_FPS,
     BASE_DIR,
-    SETTINGS_FILE,
     LOG_FILE,
+    LOG_LEVEL,
+    JSON_LOGS,
 )
-from backend.detection.detector import MotionDetector
-from backend.health.health import build_health_report
-from backend.metrics.metrics import UptimeTracker
-from backend.recording.recorder import Recorder
-from backend.utils.utils import ensure_directories, setup_logging
+from backend.services import (
+    ServiceManager,
+    ConfigService,
+    CameraService,
+    RecordingService,
+    StreamService,
+    StorageService,
+    HealthService,
+    FrameAnalyzedEvent,
+)
+from backend.utils.errors import StructuredError
+from backend.utils.logging_config import setup_logging, write_crash_report, request_id_var
+from backend.utils.event_bus import Event
 
 logger = logging.getLogger("camz.app")
-camera_manager = CameraManager()
-motion_detector = MotionDetector()
-recorder = Recorder()
-uptime = UptimeTracker()
+
+# Global Service Manager instance
+service_manager = ServiceManager()
+
+# Backward compatibility wrapper for existing tests
+class RecorderCompatWrapper:
+    @property
+    def is_recording(self) -> bool:
+        try:
+            return service_manager.get(RecordingService).is_recording
+        except ValueError:
+            return False
+
+    def enqueue_frame(self, frame, motion_detected: bool) -> None:
+        try:
+            rec = service_manager.get(RecordingService)
+            # Forward directly to the RecordingService frame handler
+            rec._on_frame_analyzed(
+                FrameAnalyzedEvent(frame=frame, mono_time=time.monotonic(), motion_detected=motion_detected)
+            )
+        except ValueError:
+            pass
+
+recorder = RecorderCompatWrapper()
+
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
+# WebSocket connections tracking
+active_websockets: list[WebSocket] = []
+loop_holder: dict[str, asyncio.AbstractEventLoop] = {}
 
-def load_settings():
-    """Load settings from settings.json and update the config module in-memory."""
-    if SETTINGS_FILE.is_file():
+
+def event_bus_websocket_bridge(event: Event) -> None:
+    """Bridges events from the background thread Event Bus to active WebSocket connections."""
+    loop = loop_holder.get("main")
+    if loop and active_websockets:
+        payload = {
+            "event_type": event.event_type,
+            "timestamp": event.timestamp.isoformat(),
+            "data": event.data or {},
+        }
+        # Run coroutine thread-safely in the FastAPI main event loop
+        asyncio.run_coroutine_threadsafe(broadcast_ws_message(payload), loop)
+
+
+async def broadcast_ws_message(payload: dict) -> None:
+    for ws in list(active_websockets):
         try:
-            with open(SETTINGS_FILE) as f:
-                data = json.load(f)
-                from backend.config import config
-                config.STREAM_FPS = float(data.get("STREAM_FPS", config.STREAM_FPS))
-                config.MOTION_THRESHOLD = int(data.get("MOTION_THRESHOLD", config.MOTION_THRESHOLD))
-                config.MOTION_MIN_AREA = int(data.get("MOTION_MIN_AREA", config.MOTION_MIN_AREA))
-                config.RECORDING_FPS = float(data.get("RECORDING_FPS", config.RECORDING_FPS))
-                config.CAMZ_PREBUFFER_SECONDS = int(data.get("CAMZ_PREBUFFER_SECONDS", config.CAMZ_PREBUFFER_SECONDS))
-                config.CAMZ_POSTBUFFER_SECONDS = int(data.get("CAMZ_POSTBUFFER_SECONDS", config.CAMZ_POSTBUFFER_SECONDS))
-                config.CAMZ_STORAGE_LIMIT_GB = float(data.get("CAMZ_STORAGE_LIMIT_GB", config.CAMZ_STORAGE_LIMIT_GB))
-                config.CAMZ_RETENTION_DAYS = int(data.get("CAMZ_RETENTION_DAYS", config.CAMZ_RETENTION_DAYS))
-        except Exception as e:
-            logger.error("Failed to load settings.json: %s", e)
+            await ws.send_json(payload)
+        except Exception:
+            if ws in active_websockets:
+                active_websockets.remove(ws)
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
-    setup_logging()
-    ensure_directories()
-    load_settings()
-    from backend.config import config
-    recorder._storage_mgr.limit_bytes = config.CAMZ_STORAGE_LIMIT_GB * 1024 * 1024 * 1024
-    recorder._storage_mgr.retention_days = config.CAMZ_RETENTION_DAYS
-    recorder.start()
-    if camera_manager.start(motion_detector, recorder):
-        logger.info("Camera manager started")
-    else:
-        logger.warning("Camera manager started without an active camera")
+async def lifespan(app: FastAPI):
+    # Set up structured application logging
+    setup_logging(log_file=LOG_FILE, level=LOG_LEVEL, json_logs=JSON_LOGS)
+    logger.info("Starting CAMZ application lifespan phases...")
+
+    # Hold the running event loop for WebSocket bridging
+    loop_holder["main"] = asyncio.get_running_loop()
+
+    # Subscribe WebSocket bridge to all events
+    service_manager.event_bus.subscribe("*", event_bus_websocket_bridge)
+
+    try:
+        service_manager.start_all()
+    except Exception as exc:
+        logger.critical("Failed to start application services during lifespan: %s", exc)
+        write_crash_report(exc, component="app_lifespan")
+        raise exc
 
     yield
 
-    stopped_path = recorder.shutdown()
-    if stopped_path is not None:
-        logger.info("Active recording saved during shutdown: %s", stopped_path)
-    camera_manager.shutdown()
+    logger.info("Stopping CAMZ application services...")
+    service_manager.stop_all()
 
 
 app = FastAPI(title="CAMZ", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+# Structured Exception handlers for FastAPI HTTP requests
+@app.exception_handler(StructuredError)
+async def structured_error_handler(request: Request, exc: StructuredError):
+    # Log complete traceback to file
+    logger.error("HTTP request structured error: %s", exc.problem, exc_info=exc)
+    return {
+        "error": {
+            "component": exc.component,
+            "problem": exc.problem,
+            "root_cause": exc.root_cause,
+            "impact": exc.impact,
+            "suggested_fix": exc.suggested_fix,
+        }
+    }
+
+
+# Request ID middleware
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    # Generate simple request ID
+    req_id = request.headers.get("X-Request-ID", f"req_{int(time.time() * 1000)}")
+    token = request_id_var.set(req_id)
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = req_id
+        return response
+    finally:
+        request_id_var.reset(token)
 
 
 @app.get("/", response_class=HTMLResponse, response_model=None)
@@ -93,12 +163,15 @@ def index(request: Request) -> FileResponse | HTMLResponse:
 @app.get("/snapshot")
 def snapshot() -> FileResponse:
     """Capture and return a single JPEG snapshot with a timestamped filename."""
+    camera_service = service_manager.get(CameraService)
+    if camera_service.camera is None or not camera_service.camera.is_opened():
+        raise HTTPException(status_code=503, detail="Camera backend is offline")
+    
     try:
-        frame = camera_manager.read()
-    except CameraError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        frame = camera_service.camera.read()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Failed to capture frame: {exc}")
 
-    import datetime
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
     name = f"snapshot_{ts}.jpg"
     path = SNAPSHOTS_DIR / name
@@ -134,7 +207,6 @@ def get_snapshot_file(name: str) -> FileResponse:
     """Serve a specific snapshot file."""
     _validate_safe_id(name)
     path = (SNAPSHOTS_DIR / name).resolve()
-    # Verify the resolved path stays inside SNAPSHOTS_DIR
     if not path.is_relative_to(SNAPSHOTS_DIR.resolve()):
         raise HTTPException(status_code=400, detail="Invalid parameter path")
     if not path.is_file():
@@ -147,7 +219,6 @@ def delete_snapshot_file(name: str) -> dict:
     """Delete a specific snapshot file."""
     _validate_safe_id(name)
     path = (SNAPSHOTS_DIR / name).resolve()
-    # Verify the resolved path stays inside SNAPSHOTS_DIR
     if not path.is_relative_to(SNAPSHOTS_DIR.resolve()):
         raise HTTPException(status_code=400, detail="Invalid parameter path")
     if not path.is_file():
@@ -161,78 +232,104 @@ def delete_snapshot_file(name: str) -> dict:
 
 @app.get("/stream.mjpeg")
 def stream() -> StreamingResponse:
-    """Stream live MJPEG with motion detection overlays."""
+    """Stream live MJPEG directly from StreamService caches (performance optimized)."""
+    stream_service = service_manager.get(StreamService)
+    stream_service.add_client()
+
     def generator():
         last_version = -1
-        while True:
-            if camera_manager.is_shutdown:
-                break
+        try:
+            while True:
+                if not stream_service.is_active():
+                    break
 
-            jpeg_bytes, version, capture_timestamp = camera_manager.get_latest_encoded()
-            if jpeg_bytes is not None and version != last_version:
-                last_version = version
+                jpeg_bytes, version, capture_timestamp = stream_service.get_latest_jpeg()
+                if jpeg_bytes is not None and version != last_version:
+                    last_version = version
+                    yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg_bytes + b"\r\n"
 
-                latency_ms = (time.monotonic() - capture_timestamp) * 1000.0
-                camera_manager.record_streaming_tick(latency_ms)
-
-                yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg_bytes + b"\r\n"
-
-            time.sleep(1.0 / STREAM_FPS)
+                time.sleep(1.0 / STREAM_FPS)
+        finally:
+            stream_service.remove_client()
 
     return StreamingResponse(generator(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 
 @app.get("/health")
 def health() -> dict:
-    """Return subsystem and host health metrics."""
-    return build_health_report(camera_manager, recorder, uptime).to_dict()
+    """Return subsystem and host health metrics calculated by HealthService."""
+    return service_manager.get(HealthService).build_report()
 
 
 @app.get("/recordings")
 def get_recordings() -> list[dict]:
     """List all available recordings sorted newest first."""
-    return recorder._recording_mgr.list_recordings()
+    # List recordings dynamically from recordings folder metadata files
+    recordings = []
+    directory = service_manager.get(StorageService).directory
+    for path in directory.glob("**/*.json"):
+        try:
+            with open(path) as file:
+                meta = json.load(file)
+                if meta.get("id"):
+                    recordings.append(meta)
+        except Exception:
+            pass
+    recordings.sort(key=lambda x: x.get("start_time", ""), reverse=True)
+    return recordings
 
 
 @app.get("/recordings/{id}")
 def get_recording(id: str) -> FileResponse:
     """Stream or download a recording video file."""
     _validate_safe_id(id)
-    path = recorder._recording_mgr.get_recording_path(id)
-    if path is None or not path.is_file():
-        raise HTTPException(status_code=404, detail="Recording not found")
-    return FileResponse(path, media_type="video/mp4")
+    directory = service_manager.get(StorageService).directory
+    for path in directory.glob(f"**/{id}.json"):
+        video_path = path.with_suffix(".mp4")
+        if video_path.is_file():
+            return FileResponse(video_path, media_type="video/mp4")
+        video_path_avi = path.with_suffix(".avi")
+        if video_path_avi.is_file():
+            return FileResponse(video_path_avi, media_type="video/mp4")
+    raise HTTPException(status_code=404, detail="Recording not found")
 
 
 @app.get("/recordings/{id}/metadata")
 def get_recording_metadata(id: str) -> dict:
     """Retrieve JSON metadata of a recording."""
     _validate_safe_id(id)
-    path = recorder._recording_mgr.get_metadata_path(id)
-    if path is None or not path.is_file():
-        raise HTTPException(status_code=404, detail="Metadata not found")
-    try:
-        with open(path) as file:
-            return json.load(file)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    directory = service_manager.get(StorageService).directory
+    for path in directory.glob(f"**/{id}.json"):
+        try:
+            with open(path) as file:
+                return json.load(file)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+    raise HTTPException(status_code=404, detail="Metadata not found")
 
 
 @app.get("/recordings/{id}/thumbnail")
 def get_recording_thumbnail(id: str) -> FileResponse:
     """Retrieve JPEG thumbnail of a recording."""
     _validate_safe_id(id)
-    path = recorder._recording_mgr.get_thumbnail_path(id)
-    if path is None or not path.is_file():
-        raise HTTPException(status_code=404, detail="Thumbnail not found")
-    return FileResponse(path, media_type="image/jpeg")
+    directory = service_manager.get(StorageService).directory
+    for path in directory.glob(f"**/{id}.jpg"):
+        return FileResponse(path, media_type="image/jpeg")
+    raise HTTPException(status_code=404, detail="Thumbnail not found")
 
 
 @app.delete("/recordings/{id}")
 def delete_recording(id: str) -> dict:
     """Delete a recording and its associated files."""
     _validate_safe_id(id)
-    if not recorder._recording_mgr.delete_recording(id):
+    storage = service_manager.get(StorageService)
+    # Search for json file
+    found = False
+    for path in storage.directory.glob(f"**/{id}.json"):
+        storage._delete_session_files(path)
+        found = True
+        break
+    if not found:
         raise HTTPException(status_code=404, detail="Recording not found")
     return {"status": "deleted"}
 
@@ -240,25 +337,26 @@ def delete_recording(id: str) -> dict:
 @app.get("/storage")
 def get_storage() -> dict:
     """Retrieve current storage usage and quota limits."""
+    storage = service_manager.get(StorageService)
     return {
-        "used_bytes": recorder._storage_mgr.get_used_bytes(),
-        "free_bytes": recorder._storage_mgr.get_free_bytes(),
-        "limit_bytes": recorder._storage_mgr.limit_bytes,
-        "retention_days": recorder._storage_mgr.retention_days,
+        "used_bytes": storage.get_used_bytes(),
+        "free_bytes": storage.get_free_bytes(),
+        "limit_bytes": storage.limit_bytes,
+        "retention_days": storage.retention_days,
     }
 
 
 @app.post("/recording/start")
 def start_manual_recording() -> dict:
     """Start manual recording."""
-    recorder.force_start_recording()
+    service_manager.get(RecordingService).start_manual_recording()
     return {"status": "recording"}
 
 
 @app.post("/recording/stop")
 def stop_manual_recording() -> dict:
     """Stop manual recording immediately."""
-    recorder.force_stop_recording()
+    service_manager.get(RecordingService).stop_manual_recording()
     return {"status": "stopped"}
 
 
@@ -281,43 +379,25 @@ def get_settings() -> dict:
 @app.post("/settings")
 def update_settings(data: dict) -> dict:
     """Update settings in memory and persist them to settings.json."""
-    from backend.config import config
-    try:
-        if "STREAM_FPS" in data:
-            config.STREAM_FPS = float(data["STREAM_FPS"])
-        if "MOTION_THRESHOLD" in data:
-            config.MOTION_THRESHOLD = int(data["MOTION_THRESHOLD"])
-        if "MOTION_MIN_AREA" in data:
-            config.MOTION_MIN_AREA = int(data["MOTION_MIN_AREA"])
-        if "RECORDING_FPS" in data:
-            config.RECORDING_FPS = float(data["RECORDING_FPS"])
-        if "CAMZ_PREBUFFER_SECONDS" in data:
-            config.CAMZ_PREBUFFER_SECONDS = int(data["CAMZ_PREBUFFER_SECONDS"])
-        if "CAMZ_POSTBUFFER_SECONDS" in data:
-            config.CAMZ_POSTBUFFER_SECONDS = int(data["CAMZ_POSTBUFFER_SECONDS"])
-        if "CAMZ_STORAGE_LIMIT_GB" in data:
-            config.CAMZ_STORAGE_LIMIT_GB = float(data["CAMZ_STORAGE_LIMIT_GB"])
-            recorder._storage_mgr.limit_bytes = config.CAMZ_STORAGE_LIMIT_GB * 1024 * 1024 * 1024
-        if "CAMZ_RETENTION_DAYS" in data:
-            config.CAMZ_RETENTION_DAYS = int(data["CAMZ_RETENTION_DAYS"])
-            recorder._storage_mgr.retention_days = config.CAMZ_RETENTION_DAYS
+    config_service = service_manager.get(ConfigService)
+    
+    # Apply dynamic updates
+    mapping = {
+        "STREAM_FPS": ("camera", "stream_fps"),
+        "MOTION_THRESHOLD": ("motion", "threshold"),
+        "MOTION_MIN_AREA": ("motion", "min_area"),
+        "RECORDING_FPS": ("recording", "recording_fps"),
+        "CAMZ_PREBUFFER_SECONDS": ("recording", "prebuffer_seconds"),
+        "CAMZ_POSTBUFFER_SECONDS": ("recording", "postbuffer_seconds"),
+        "CAMZ_STORAGE_LIMIT_GB": ("recording", "storage_limit_gb"),
+        "CAMZ_RETENTION_DAYS": ("recording", "retention_days"),
+    }
+    
+    for key, (section, conf_key) in mapping.items():
+        if key in data:
+            config_service.update_setting(section, conf_key, data[key])
 
-        persist_data = {
-            "STREAM_FPS": config.STREAM_FPS,
-            "MOTION_THRESHOLD": config.MOTION_THRESHOLD,
-            "MOTION_MIN_AREA": config.MOTION_MIN_AREA,
-            "RECORDING_FPS": config.RECORDING_FPS,
-            "CAMZ_PREBUFFER_SECONDS": config.CAMZ_PREBUFFER_SECONDS,
-            "CAMZ_POSTBUFFER_SECONDS": config.CAMZ_POSTBUFFER_SECONDS,
-            "CAMZ_STORAGE_LIMIT_GB": config.CAMZ_STORAGE_LIMIT_GB,
-            "CAMZ_RETENTION_DAYS": config.CAMZ_RETENTION_DAYS,
-        }
-        with open(SETTINGS_FILE, "w") as f:
-            json.dump(persist_data, f, indent=2)
-
-        return {"status": "success", "settings": persist_data}
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "success", "settings": get_settings()}
 
 
 @app.get("/logs")
@@ -335,11 +415,26 @@ def get_logs(limit: int = 100) -> list[str]:
 
 @app.post("/camera/restart")
 def restart_camera() -> dict:
-    """Restart the camera connection and thread."""
-    camera_manager.shutdown()
-    time.sleep(0.5)
-    started = camera_manager.start(motion_detector, recorder)
+    """Restart the camera connection."""
+    started = service_manager.get(CameraService).reconnect()
     return {"status": "restarted", "success": started}
+
+
+# WebSocket event router
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """Allows UI components to subscribe to system event streams in real-time."""
+    await websocket.accept()
+    active_websockets.append(websocket)
+    try:
+        # Keep connection open, await heartbeats or messages from client
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if websocket in active_websockets:
+            active_websockets.remove(websocket)
 
 
 # Mount production React built assets at root for complete standalone serving
@@ -350,4 +445,4 @@ if VITE_DIST.is_dir():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=service_manager.get(ConfigService).config.PORT, reload=True)

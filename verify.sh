@@ -1,17 +1,8 @@
 #!/usr/bin/env bash
+# Legacy verify script delegating to the unified CLI
+
 set -e
+BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$BASE_DIR"
 
-if [ ! -d ".venv" ]; then
-    echo "[ERROR] Virtual environment not found. Run ./setup.sh first." >&2
-    exit 1
-fi
-
-source .venv/bin/activate
-
-echo "=== Running System Diagnostic Checks ==="
-python scripts/verify_system.py
-
-echo "=== Running Backend Unit Tests (pytest) ==="
-PYTHONPATH=. pytest -vv
-
-echo "[SUCCESS] All verification checks completed."
+./camz verify

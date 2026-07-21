@@ -13,7 +13,7 @@ from backend.camera.camera_manager import CameraManager, CameraState
 from tests.test_camera_manager import FakeCamera
 
 
-@patch("backend.camera.camera_manager.create_camera")
+@patch("backend.services.create_camera")
 def test_index_returns_html(create_camera: MagicMock) -> None:
     create_camera.return_value = FakeCamera()
     from backend.main import app
@@ -97,7 +97,7 @@ def test_hot_plug_recovery(create_camera: MagicMock) -> None:
 
 @patch("backend.recording.recording_manager.cv2.imwrite")
 @patch("backend.recording.video_encoder.cv2.VideoWriter")
-@patch("backend.camera.camera_manager.create_camera")
+@patch("backend.services.create_camera")
 def test_app_lifespan_finalizes_active_recording(create_camera: MagicMock, video_writer: MagicMock, imwrite: MagicMock) -> None:
     create_camera.return_value = FakeCamera()
     from backend.main import app, recorder

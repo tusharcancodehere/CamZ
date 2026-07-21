@@ -1,0 +1,66 @@
+# CAMZ Production Configuration Configuration Example
+# Copy this file to 'config.toml' in the project root to customize defaults.
+
+[camera]
+# Camera backend type. Options: "auto", "picamera2", "opencv", "rtsp", "file"
+# "auto" prioritizes Picamera2 on Raspberry Pi, otherwise falls back to OpenCV.
+type = "auto"
+
+# Camera device index (int for local webcams), RTSP URL string, or path to local test video file.
+# Default is 0.
+source = "0"
+
+# Resolution. If 0, uses camera default hardware resolution.
+width = 1280
+height = 720
+
+# Stream frame rate (FPS) limits
+stream_fps = 20.0
+
+# JPEG compression quality (1-100) for MJPEG stream encoding
+jpeg_quality = 85
+
+# Camera connection recovery retry interval in seconds
+recovery_interval_seconds = 5.0
+
+[recording]
+# Frame rate of saved MP4 files
+recording_fps = 20.0
+
+# Circular pre-buffer duration in seconds before motion is detected
+prebuffer_seconds = 5
+
+# Post-motion cooldown duration in seconds to keep recording after motion stops
+postbuffer_seconds = 10
+
+# Directory storage limit quota (in GB). Cleanups start when exceeded.
+storage_limit_gb = 50.0
+
+# File age retention limit (in days)
+retention_days = 30
+
+# Max frame queue size. Drops oldest frames under system load to avoid memory bloating.
+queue_size = 256
+
+# Video format file extension. Options: "mp4", "avi"
+format = "mp4"
+
+[motion]
+# OpenCV MOG2 varThreshold. Lower is more sensitive, higher is less. Default is 25.
+threshold = 25
+
+# Minimum bounding box contour area (in pixels) to classify as motion. Default is 1200.
+min_area = 1200
+
+[system]
+# Root path for logs, recordings, snapshots, and temporary verification runs.
+runtime_dir = "runtime"
+
+# Log level. Options: "DEBUG", "INFO", "WARNING", "ERROR"
+log_level = "INFO"
+
+# Enable structured logs in JSON format (ideal for ELK / Loki ingestion)
+json_logs = false
+
+# Web server port
+port = 8000
