@@ -10,7 +10,6 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-import anyio
 
 from backend.camera.camera import CameraError
 from backend.camera.camera_manager import CameraManager
@@ -27,7 +26,6 @@ from backend.detection.detector import MotionDetector
 from backend.health.health import build_health_report
 from backend.metrics.metrics import UptimeTracker
 from backend.recording.recorder import Recorder
-from backend.api.stream import mjpeg_chunk
 from backend.utils.utils import ensure_directories, setup_logging
 
 logger = logging.getLogger("camz.app")
@@ -59,6 +57,7 @@ def load_settings():
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    setup_logging()
     ensure_directories()
     load_settings()
     from backend.config import config
