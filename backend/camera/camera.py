@@ -6,7 +6,7 @@ from typing import Optional, Protocol
 import cv2
 import numpy as np
 
-from config import CAMERA_INDEX, USE_PICAMERA2
+from backend.config.config import CAMERA_INDEX, USE_PICAMERA2
 
 
 class CameraError(RuntimeError):

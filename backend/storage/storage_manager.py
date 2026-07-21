@@ -9,6 +9,40 @@ from pathlib import Path
 logger = logging.getLogger("camz.storage")
 
 
+class RuntimeStorageManager:
+    """Centralized manager for all CAMZ runtime filesystem paths and operations."""
+
+    def __init__(self, root_dir: Path) -> None:
+        self.root_dir = root_dir
+        self.logs_dir = self.root_dir / "logs"
+        self.recordings_dir = self.root_dir / "recordings"
+        self.snapshots_dir = self.root_dir / "snapshots"
+        self.cache_dir = self.root_dir / "cache"
+        self.temp_dir = self.root_dir / "temp"
+        self.exports_dir = self.root_dir / "exports"
+        
+        # Ensure all folders exist
+        self.ensure_dirs()
+
+    def ensure_dirs(self) -> None:
+        """Create all managed subdirectories if missing."""
+        for path in [
+            self.logs_dir,
+            self.recordings_dir,
+            self.snapshots_dir,
+            self.cache_dir,
+            self.temp_dir,
+            self.exports_dir,
+        ]:
+            path.mkdir(parents=True, exist_ok=True)
+
+    def get_log_file(self) -> Path:
+        return self.logs_dir / "camera.log"
+
+    def get_settings_file(self) -> Path:
+        return self.root_dir / "settings.json"
+
+
 class StorageManager:
     """Manages recording disk usage limits, free space, and age retention cleanups."""
 

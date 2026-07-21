@@ -13,7 +13,7 @@ from typing import Any
 
 import numpy as np
 
-from config import (
+from backend.config.config import (
     RECORDINGS_DIR,
     RECORDING_FPS,
     CAMZ_RECORDING_QUEUE_SIZE,
@@ -23,10 +23,10 @@ from config import (
     CAMZ_STORAGE_LIMIT_GB,
     CAMZ_RETENTION_DAYS,
 )
-from metrics import FPSCounter
-from recording_manager import RecordingManager
-from storage_manager import StorageManager
-from video_encoder import VideoEncoder
+from backend.metrics.metrics import FPSCounter
+from backend.recording.recording_manager import RecordingManager
+from backend.storage.storage_manager import StorageManager
+from backend.recording.video_encoder import VideoEncoder
 
 logger = logging.getLogger("camz.recorder")
 
@@ -294,6 +294,11 @@ class Recorder:
         avg_encode_ms = self._total_encode_time / self._total_frames if self._total_frames > 0 else 0.0
         motion_pct = (self._motion_frames / self._total_frames * 100.0) if self._total_frames > 0 else 0.0
 
+        # Clamp to finite values — NaN/Inf are not valid JSON and corrupt the file
+        def _safe(v: float) -> float:
+            import math
+            return v if math.isfinite(v) else 0.0
+
         metadata = {
             "id": self._session_id,
             "start_time": datetime.datetime.fromtimestamp(
@@ -302,14 +307,14 @@ class Recorder:
             "end_time": datetime.datetime.fromtimestamp(
                 time.time(), tz=datetime.timezone.utc
             ).isoformat(),
-            "duration_seconds": round(duration, 2),
-            "average_fps": round(avg_fps, 2),
+            "duration_seconds": round(_safe(duration), 2),
+            "average_fps": round(_safe(avg_fps), 2),
             "resolution": f"{width}x{height}",
             "codec": self._encoder.codec_used,
-            "motion_percentage": round(motion_pct, 2),
+            "motion_percentage": round(_safe(motion_pct), 2),
             "file_size_bytes": file_size,
             "reason": "motion",
-            "average_encode_time_ms": round(avg_encode_ms, 2),
+            "average_encode_time_ms": round(_safe(avg_encode_ms), 2),
         }
 
         if self._session_id is not None and self._video_path is not None:

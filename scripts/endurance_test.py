@@ -11,8 +11,8 @@ import psutil
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from recorder import Recorder
-import config
+from backend.recording.recorder import Recorder
+from backend.config import config
 
 
 def get_process_metrics(recorder):

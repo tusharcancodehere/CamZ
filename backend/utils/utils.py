@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from config import LOG_FILE, LOGS_DIR, RECORDINGS_DIR, SNAPSHOTS_DIR
+from backend.config.config import LOG_FILE, LOGS_DIR, RECORDINGS_DIR, SNAPSHOTS_DIR
 
 
 def ensure_directories() -> None:

@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from camera import CameraError
-from camera_manager import CameraManager, CameraState
+from backend.camera.camera import CameraError
+from backend.camera.camera_manager import CameraManager, CameraState
 
 
 class FakeCamera:
@@ -26,7 +26,7 @@ class FakeCamera:
         self.released = True
 
 
-@patch("camera_manager.create_camera")
+@patch("backend.camera.camera_manager.create_camera")
 def test_camera_manager_connects_on_start(create_camera: MagicMock) -> None:
     create_camera.return_value = FakeCamera()
     manager = CameraManager(recovery_interval_seconds=0.05)
@@ -38,7 +38,7 @@ def test_camera_manager_connects_on_start(create_camera: MagicMock) -> None:
     manager.shutdown()
 
 
-@patch("camera_manager.create_camera")
+@patch("backend.camera.camera_manager.create_camera")
 def test_camera_manager_marks_disconnect_on_read_failure(create_camera: MagicMock) -> None:
     create_camera.return_value = FakeCamera(fail_reads=1)
     manager = CameraManager(recovery_interval_seconds=0.05)
@@ -54,7 +54,7 @@ def test_camera_manager_marks_disconnect_on_read_failure(create_camera: MagicMoc
     manager.shutdown()
 
 
-@patch("camera_manager.create_camera")
+@patch("backend.camera.camera_manager.create_camera")
 def test_camera_manager_recovers_in_background(create_camera: MagicMock) -> None:
     broken = FakeCamera(fail_reads=1)
     healthy = FakeCamera()
@@ -80,7 +80,7 @@ def test_camera_manager_recovers_in_background(create_camera: MagicMock) -> None
 
 
 def test_latest_frame_buffer_basic() -> None:
-    from camera_manager import LatestBuffer
+    from backend.camera.camera_manager import LatestBuffer
     buf = LatestBuffer()
 
     frame, version, timestamp = buf.get()
@@ -105,7 +105,7 @@ def test_latest_frame_buffer_basic() -> None:
 
 def test_latest_frame_buffer_concurrent() -> None:
     import threading
-    from camera_manager import LatestBuffer
+    from backend.camera.camera_manager import LatestBuffer
     buf = LatestBuffer()
     errors: list[Exception] = []
 
@@ -138,7 +138,7 @@ def test_latest_frame_buffer_concurrent() -> None:
     assert errors == []
 
 
-@patch("camera_manager.create_camera")
+@patch("backend.camera.camera_manager.create_camera")
 def test_camera_manager_concurrent_reads(create_camera: MagicMock) -> None:
     import threading
     create_camera.return_value = FakeCamera()

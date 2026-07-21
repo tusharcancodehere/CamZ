@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from camera_manager import CameraState
-from health import build_health_report
-from metrics import UptimeTracker
+from backend.camera.camera_manager import CameraState
+from backend.health.health import build_health_report
+from backend.metrics.metrics import UptimeTracker
 
 
-@patch("health.read_temperature_c", return_value=42.0)
-@patch("health.read_cpu_percent", return_value=12.5)
-@patch("health.read_memory_stats")
+@patch("backend.health.health.read_temperature_c", return_value=42.0)
+@patch("backend.health.health.read_cpu_percent", return_value=12.5)
+@patch("backend.health.health.read_memory_stats")
 def test_build_health_report_includes_subsystem_state(
     read_memory_stats: MagicMock,
     _read_cpu_percent: MagicMock,

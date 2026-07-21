@@ -8,15 +8,15 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from camera import CameraError
-from camera_manager import CameraManager, CameraState
+from backend.camera.camera import CameraError
+from backend.camera.camera_manager import CameraManager, CameraState
 from tests.test_camera_manager import FakeCamera
 
 
-@patch("camera_manager.create_camera")
+@patch("backend.camera.camera_manager.create_camera")
 def test_index_returns_html(create_camera: MagicMock) -> None:
     create_camera.return_value = FakeCamera()
-    from app import app
+    from backend.main import app
 
     with TestClient(app) as client:
         response = client.get("/")
@@ -24,7 +24,7 @@ def test_index_returns_html(create_camera: MagicMock) -> None:
         assert "CAMZ" in response.text
 
 
-@patch("camera_manager.create_camera")
+@patch("backend.camera.camera_manager.create_camera")
 def test_startup_without_camera(create_camera: MagicMock) -> None:
     create_camera.side_effect = CameraError("no camera")
     manager = CameraManager(recovery_interval_seconds=0.05)
@@ -35,7 +35,7 @@ def test_startup_without_camera(create_camera: MagicMock) -> None:
     manager.shutdown()
 
 
-@patch("camera_manager.create_camera")
+@patch("backend.camera.camera_manager.create_camera")
 def test_multiple_reconnect_attempts(create_camera: MagicMock) -> None:
     create_camera.side_effect = [
         FakeCamera(fail_reads=1),
@@ -61,7 +61,7 @@ def test_multiple_reconnect_attempts(create_camera: MagicMock) -> None:
     manager.shutdown()
 
 
-@patch("camera_manager.create_camera")
+@patch("backend.camera.camera_manager.create_camera")
 def test_hot_plug_recovery(create_camera: MagicMock) -> None:
     camera = FakeCamera()
     create_camera.return_value = camera
@@ -95,12 +95,12 @@ def test_hot_plug_recovery(create_camera: MagicMock) -> None:
     manager.shutdown()
 
 
-@patch("recording_manager.cv2.imwrite")
-@patch("video_encoder.cv2.VideoWriter")
-@patch("camera_manager.create_camera")
+@patch("backend.recording.recording_manager.cv2.imwrite")
+@patch("backend.recording.video_encoder.cv2.VideoWriter")
+@patch("backend.camera.camera_manager.create_camera")
 def test_app_lifespan_finalizes_active_recording(create_camera: MagicMock, video_writer: MagicMock, imwrite: MagicMock) -> None:
     create_camera.return_value = FakeCamera()
-    from app import app, recorder
+    from backend.main import app, recorder
 
     with TestClient(app) as client:
         client.get("/health")
@@ -120,7 +120,7 @@ def test_app_lifespan_finalizes_active_recording(create_camera: MagicMock, video
     assert recorder.is_recording is False
 
 
-@patch("camera_manager.create_camera")
+@patch("backend.camera.camera_manager.create_camera")
 def test_shutdown_does_not_reconnect(create_camera: MagicMock) -> None:
     create_camera.side_effect = [FakeCamera(fail_reads=1), FakeCamera()]
     manager = CameraManager(recovery_interval_seconds=0.2)
@@ -144,7 +144,7 @@ def test_shutdown_does_not_reconnect(create_camera: MagicMock) -> None:
 
 
 def test_motion_detector_is_thread_safe() -> None:
-    from detector import MotionDetector
+    from backend.detection.detector import MotionDetector
 
     detector = MotionDetector()
     frame = np.zeros((48, 64, 3), dtype=np.uint8)
@@ -166,7 +166,7 @@ def test_motion_detector_is_thread_safe() -> None:
     assert errors == []
 
 
-@patch("camera_manager.create_camera")
+@patch("backend.camera.camera_manager.create_camera")
 def test_repeated_connect_disconnect_cycles(create_camera: MagicMock) -> None:
     create_camera.return_value = FakeCamera()
     manager = CameraManager(recovery_interval_seconds=0.05)
@@ -181,7 +181,7 @@ def test_repeated_connect_disconnect_cycles(create_camera: MagicMock) -> None:
     assert manager._watchdog is None or not manager._watchdog.is_alive()
 
 
-@patch("camera_manager.create_camera")
+@patch("backend.camera.camera_manager.create_camera")
 def test_reconnect_after_read_failure(create_camera: MagicMock) -> None:
     camera_fail = FakeCamera(fail_reads=1)
     camera_ok = FakeCamera()
@@ -214,7 +214,7 @@ def test_reconnect_after_read_failure(create_camera: MagicMock) -> None:
     manager.shutdown()
 
 
-@patch("camera_manager.create_camera")
+@patch("backend.camera.camera_manager.create_camera")
 def test_concurrent_readers(create_camera: MagicMock) -> None:
     create_camera.return_value = FakeCamera()
     manager = CameraManager(recovery_interval_seconds=0.05)
@@ -241,7 +241,7 @@ def test_concurrent_readers(create_camera: MagicMock) -> None:
     assert errors == []
 
 
-@patch("camera_manager.create_camera")
+@patch("backend.camera.camera_manager.create_camera")
 def test_shutdown_while_streaming(create_camera: MagicMock) -> None:
     create_camera.return_value = FakeCamera()
     manager = CameraManager(recovery_interval_seconds=0.05)

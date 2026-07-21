@@ -5,14 +5,13 @@ import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
-
 from typing import Any
 
 import numpy as np
 
-from camera import CameraError, CameraSource, create_camera
-from config import CAMERA_RECOVERY_INTERVAL_SECONDS, STREAM_FPS
-from metrics import FPSCounter, SlidingWindowAverage
+from backend.camera.camera import CameraError, CameraSource, create_camera
+from backend.config.config import CAMERA_RECOVERY_INTERVAL_SECONDS, STREAM_FPS
+from backend.metrics.metrics import FPSCounter, SlidingWindowAverage
 
 
 logger = logging.getLogger("camz.camera")

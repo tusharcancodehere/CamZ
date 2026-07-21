@@ -2,6 +2,11 @@
 
 /* Custom scrollbar and minor styles */
 @layer base {
+  html, body {
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+  }
+
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;

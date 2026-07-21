@@ -51,8 +51,8 @@ def _consume_stream(client: TestClient, stop: threading.Event) -> None:
 
 
 def main() -> int:
-    with patch("camera_manager.create_camera", side_effect=lambda: FakeCamera()):
-        from app import app
+    with patch("backend.camera.camera_manager.create_camera", side_effect=lambda: FakeCamera()):
+        from backend.main import app
 
         with TestClient(app) as client:
             idle = _measure_current_process(duration=5.0)

@@ -28,7 +28,6 @@ class RecordingManager:
         folder = self.directory / date_str
         folder.mkdir(parents=True, exist_ok=True)
 
-        # Video extension from parameter, defaults to mp4
         return session_id, folder / f"{session_id}.mp4"
 
     def save_metadata(self, session_id: str, video_path: Path, metadata: dict) -> None:
@@ -45,7 +44,6 @@ class RecordingManager:
         """Save a thumbnail image for the session."""
         thumb_path = video_path.with_suffix(".jpg")
         try:
-            # OpenCV writes array directly to JPEG file
             cv2.imwrite(str(thumb_path), frame)
             logger.info("Saved thumbnail at %s", thumb_path)
         except Exception as exc:
@@ -58,9 +56,12 @@ class RecordingManager:
             try:
                 with open(path) as file:
                     meta = json.load(file)
-                    recordings.append(meta)
+                    # Skip entries missing the required 'id' field (partial writes)
+                    if meta.get("id"):
+                        recordings.append(meta)
             except Exception as exc:
-                logger.warning("Failed to read metadata %s: %s", path, exc)
+                # Debug-level only — truncated JSON is expected for in-progress writes
+                logger.debug("Skipping unreadable metadata %s: %s", path, exc)
 
         recordings.sort(key=lambda x: x.get("start_time", ""), reverse=True)
         return recordings

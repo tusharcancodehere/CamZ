@@ -11,10 +11,10 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-import config
-from recorder import FrameQueue, Recorder
-from storage_manager import StorageManager
-from video_encoder import VideoEncoder
+from backend.config import config
+from backend.recording.recorder import FrameQueue, Recorder
+from backend.storage.storage_manager import StorageManager
+from backend.recording.video_encoder import VideoEncoder
 
 
 def test_frame_queue_overflow() -> None:
@@ -35,7 +35,7 @@ def test_frame_queue_overflow() -> None:
     assert q.get() == "frame4"
 
 
-@patch("recorder.VideoEncoder")
+@patch("backend.recording.recorder.VideoEncoder")
 def test_recorder_pre_post_buffer(mock_encoder_cls) -> None:
     mock_encoder = MagicMock(spec=VideoEncoder)
     mock_encoder.width = 64
@@ -45,9 +45,9 @@ def test_recorder_pre_post_buffer(mock_encoder_cls) -> None:
     mock_encoder_cls.return_value = mock_encoder
 
     # Patch buffer settings to make the test fast
-    with patch("recorder.CAMZ_PREBUFFER_SECONDS", 1), \
-         patch("recorder.CAMZ_POSTBUFFER_SECONDS", 0.05), \
-         patch("recorder.RECORDING_FPS", 5):
+    with patch("backend.recording.recorder.CAMZ_PREBUFFER_SECONDS", 1), \
+         patch("backend.recording.recorder.CAMZ_POSTBUFFER_SECONDS", 0.05), \
+         patch("backend.recording.recorder.RECORDING_FPS", 5):
         
         recorder = Recorder()
         frame = np.zeros((48, 64, 3), dtype=np.uint8)
@@ -131,14 +131,13 @@ def test_storage_manager_cleanup() -> None:
         assert not s1_path.with_suffix(".json").is_file()
         
         # Remaining size must be below quota (~100 KB limit)
-        # Since s2 (80 KB) + s3 (10 KB) = 90 KB, which is below 100 KB, s2 and s3 might be kept or s2 cleaned up if threshold was exceeded
         assert storage.get_used_bytes() <= storage.limit_bytes
         
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-@patch("recorder.VideoEncoder")
+@patch("backend.recording.recorder.VideoEncoder")
 def test_recorder_encoder_failure_recovery(mock_encoder_cls) -> None:
     mock_encoder = MagicMock(spec=VideoEncoder)
     mock_encoder.width = 64
@@ -148,8 +147,8 @@ def test_recorder_encoder_failure_recovery(mock_encoder_cls) -> None:
     mock_encoder.write.side_effect = Exception("Write error")
     mock_encoder_cls.return_value = mock_encoder
 
-    with patch("recorder.CAMZ_PREBUFFER_SECONDS", 1), \
-         patch("recorder.CAMZ_POSTBUFFER_SECONDS", 0.05):
+    with patch("backend.recording.recorder.CAMZ_PREBUFFER_SECONDS", 1), \
+         patch("backend.recording.recorder.CAMZ_POSTBUFFER_SECONDS", 0.05):
         
         recorder = Recorder()
         frame = np.zeros((48, 64, 3), dtype=np.uint8)
@@ -166,7 +165,7 @@ def test_recorder_encoder_failure_recovery(mock_encoder_cls) -> None:
         recorder.shutdown()
 
 
-@patch("recorder.VideoEncoder")
+@patch("backend.recording.recorder.VideoEncoder")
 def test_recorder_shutdown_during_active_session(mock_encoder_cls) -> None:
     mock_encoder = MagicMock(spec=VideoEncoder)
     mock_encoder.width = 64
@@ -189,7 +188,7 @@ def test_recorder_shutdown_during_active_session(mock_encoder_cls) -> None:
     mock_encoder.release.assert_called()
 
 
-@patch("recorder.VideoEncoder")
+@patch("backend.recording.recorder.VideoEncoder")
 def test_repeated_recording_sessions(mock_encoder_cls) -> None:
     mock_encoder = MagicMock(spec=VideoEncoder)
     mock_encoder.width = 64
@@ -197,8 +196,8 @@ def test_repeated_recording_sessions(mock_encoder_cls) -> None:
     mock_encoder.codec_used = "XVID"
     mock_encoder_cls.return_value = mock_encoder
 
-    with patch("recorder.CAMZ_PREBUFFER_SECONDS", 1), \
-         patch("recorder.CAMZ_POSTBUFFER_SECONDS", 0.02):
+    with patch("backend.recording.recorder.CAMZ_PREBUFFER_SECONDS", 1), \
+         patch("backend.recording.recorder.CAMZ_POSTBUFFER_SECONDS", 0.02):
         
         recorder = Recorder()
         frame = np.zeros((48, 64, 3), dtype=np.uint8)

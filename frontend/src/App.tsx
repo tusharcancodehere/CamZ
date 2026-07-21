@@ -1,121 +1,71 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import React, { useEffect } from 'react'
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
+import { useStore } from './store/useStore'
+import { Sidebar } from './components/Sidebar'
+import { TopBar } from './components/TopBar'
+import { NotificationToast } from './components/NotificationToast'
+import { CommandPalette } from './components/CommandPalette'
 
-function App() {
-  const [count, setCount] = useState(0)
+import { Dashboard } from './pages/Dashboard'
+import { LiveView } from './pages/LiveView'
+import { Recordings } from './pages/Recordings'
+import { Snapshots } from './pages/Snapshots'
+import { Analytics } from './pages/Analytics'
+import { Health } from './pages/Health'
+import { Settings } from './pages/Settings'
+import { Logs } from './pages/Logs'
+
+const Layout: React.FC = () => {
+  const { setActiveTab, fetchHealth } = useStore()
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  // Sync route → Zustand (one direction only; Sidebar reads activeTab for highlighting)
+  useEffect(() => {
+    const tab = location.pathname.substring(1) || 'dashboard'
+    setActiveTab(tab)
+  }, [location.pathname, setActiveTab])
+
+  // Sync Zustand setActiveTab → navigate is handled inside Sidebar link clicks directly.
+  // Do NOT add a reverse effect here — it creates a feedback loop.
+
+  // Poll health metrics globally every 3s (increased from 2.5s to reduce churn)
+  useEffect(() => {
+    fetchHealth()
+    const timer = setInterval(fetchHealth, 3000)
+    return () => clearInterval(timer)
+  }, [fetchHealth])
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <div className="flex h-screen w-screen overflow-hidden bg-slate-950 text-slate-100 antialiased font-sans">
+      <Sidebar />
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <TopBar />
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 bg-[#0b0f19]">
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/live" element={<LiveView />} />
+            <Route path="/recordings" element={<Recordings />} />
+            <Route path="/snapshots" element={<Snapshots />} />
+            <Route path="/analytics" element={<Analytics />} />
+            <Route path="/health" element={<Health />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/logs" element={<Logs />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </main>
+      </div>
+      <NotificationToast />
+      <CommandPalette />
+    </div>
+  )
+}
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+function App() {
+  return (
+    <Router>
+      <Layout />
+    </Router>
   )
 }
 

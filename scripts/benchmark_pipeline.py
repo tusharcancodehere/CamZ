@@ -42,7 +42,7 @@ def main():
     env = os.environ.copy()
     env["PYTHONPATH"] = "."
     server_proc = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "app:app", "--port", "8000", "--log-level", "warning"],
+        [sys.executable, "-m", "uvicorn", "backend.main:app", "--port", "8000", "--log-level", "warning"],
         env=env
     )
     

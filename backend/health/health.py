@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from camera_manager import CameraManager, CameraState
-from metrics import UptimeTracker, read_cpu_percent, read_memory_stats, read_temperature_c
-from recorder import Recorder
+from backend.camera.camera_manager import CameraManager, CameraState
+from backend.metrics.metrics import UptimeTracker, read_cpu_percent, read_memory_stats, read_temperature_c
+from backend.recording.recorder import Recorder
 
 
 @dataclass(frozen=True)
@@ -28,6 +28,7 @@ class RecordingHealth:
     queue_size: int
     storage_used_bytes: int
     storage_free_bytes: int
+    storage_limit_bytes: int
     total_recordings: int
     current_session_length_seconds: float
     recorder_fps: float
@@ -96,6 +97,7 @@ def build_health_report(
             queue_size=recorder.queue_size,
             storage_used_bytes=recorder._storage_mgr.get_used_bytes(),
             storage_free_bytes=recorder._storage_mgr.get_free_bytes(),
+            storage_limit_bytes=int(recorder._storage_mgr.limit_bytes),
             total_recordings=len(recorder._recording_mgr.list_recordings()),
             current_session_length_seconds=round(recorder.current_session_length, 2),
             recorder_fps=round(recorder.recorder_fps, 2),

@@ -1,7 +1,59 @@
+# CAMZ Git Ignore Configurations
+
+# Python virtual environment
 .venv/
+env/
+venv/
+ENV/
+
+# Python caching & bytecode
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 .pytest_cache/
-logs/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# React / Node/ Vite build outputs
+node_modules/
+frontend/node_modules/
+frontend/dist/
+dist/
+
+# All runtime-generated data (logs, recordings, snapshots, cache, temp, settings)
+runtime/
+
+# Endurance & benchmark test data directories
+recordings_endurance/
+
+# Stale top-level runtime artifacts (legacy pre-runtime/ cleanup)
 recordings/
 snapshots/
+logs/
+
+# Video and media files
+*.mp4
+*.avi
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Configuration files
+.env
+.env.*
+!.env.example
+
+# IDE settings
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Test artifacts
+*.log
