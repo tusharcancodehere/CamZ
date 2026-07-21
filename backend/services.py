@@ -104,6 +104,34 @@ class TunnelRestartedEvent(Event):
         self.attempt = attempt
 
 
+class TunnelStateChangedEvent(Event):
+    def __init__(self, old_state: str, new_state: str, reason: str = "") -> None:
+        super().__init__(data={"old_state": old_state, "new_state": new_state, "reason": reason})
+        self.old_state = old_state
+        self.new_state = new_state
+        self.reason = reason
+
+
+class TunnelValidatingEvent(Event):
+    def __init__(self, url: str) -> None:
+        super().__init__(data={"url": url})
+        self.url = url
+
+
+class TunnelValidationFailedEvent(Event):
+    def __init__(self, url: str, reason: str) -> None:
+        super().__init__(data={"url": url, "reason": reason})
+        self.url = url
+        self.reason = reason
+
+
+class TunnelProtocolFallbackEvent(Event):
+    def __init__(self, from_protocol: str, to_protocol: str) -> None:
+        super().__init__(data={"from_protocol": from_protocol, "to_protocol": to_protocol})
+        self.from_protocol = from_protocol
+        self.to_protocol = to_protocol
+
+
 # --- Service Abstract Base ---
 
 class BaseService:
@@ -1156,189 +1184,348 @@ class SlidingWindowAverage:
 
 
 class TunnelService(BaseService):
-    """Manages the lifecycle, monitoring, and auto-recovery of Cloudflare Tunnel."""
+    """
+    Production-grade Cloudflare Tunnel lifecycle manager.
+
+    Features:
+    - Explicit state machine (STOPPED/INSTALLING/STARTING/CONNECTING/CONNECTED/DEGRADED/FAILED/STOPPING)
+    - Connectivity validation before declaring CONNECTED
+    - QUIC → HTTP/2 automatic protocol fallback
+    - Exponential backoff with configurable max retries
+    - Architecture-aware installer (dpkg --print-architecture)
+    - Structured logging for all lifecycle events
+    - No orphaned cloudflared processes on shutdown
+    """
 
     def __init__(self, manager: ServiceManager) -> None:
         super().__init__(manager)
         self.config = manager.get(ConfigService).config
+
+        # Process handle
         self.process = None
-        self._url = ""
-        self._connected = False
-        self._start_time = 0.0
-        self._crash_count = 0
+        self._pid: int | None = None
+
+        # State machine (imported inline to avoid circular issues at module load)
+        from backend.tunnel_state import TunnelState, TunnelStateMachine
+        self._sm = TunnelStateMachine()
+        self._TunnelState = TunnelState
+
+        # Wire state machine changes to the event bus
+        def _on_state_change(old, new, reason):
+            self.manager.event_bus.publish(
+                TunnelStateChangedEvent(old.value, new.value, reason)
+            )
+        self._sm.add_listener(_on_state_change)
+
+        # URL only ever exposed when CONNECTED
+        self._url: str = ""
+        self._candidate_url: str = ""  # scraped from logs, not yet validated
+
+        # Protocol tracking
+        self._protocol: str = self.config.TUNNEL_PROTOCOL or "quic"
+        self._quic_fail_count: int = 0
+
+        # Timing & metrics
+        self._start_time: float = 0.0
+        self._restart_count: int = 0
+        self._backoff_delay: float = 1.0
+
+        # Log history for CLI
+        self._log_history: collections.deque[str] = collections.deque(maxlen=200)
+
+        # Version & architecture (populated on first start)
+        self._version: str = ""
+        self._arch: str = ""
+
+        # Threading
         self._shutdown_event = threading.Event()
-        self._log_history = collections.deque(maxlen=100)
-        self._monitor_thread = None
+        self._monitor_thread: threading.Thread | None = None
         self._lock = threading.Lock()
-        self._backoff_delay = 1.0
+
+        # Connectivity validator
+        from backend.tunnel_validator import TunnelConnectivityValidator
+        from urllib.parse import urlparse as _urlparse
+        _local_port = _urlparse(self.config.TUNNEL_SHARE_LOCALHOST).port or 8000
+        self._validator = TunnelConnectivityValidator(
+            local_port=_local_port,
+            timeout_seconds=getattr(self.config, "TUNNEL_VALIDATION_TIMEOUT", 5.0),
+        )
+
+    # ------------------------------------------------------------------ #
+    # BaseService overrides                                                #
+    # ------------------------------------------------------------------ #
 
     def start(self) -> None:
         super().start()
         self._shutdown_event.clear()
-        
-        # Check if enabled in configuration
+
         if not self.config.TUNNEL_ENABLED:
-            logger.info("TunnelService is disabled in configuration. Skipping startup.")
+            logger.info("TunnelService: disabled in configuration — skipping startup.")
             return
 
-        # Check binary availability, attempt auto-install if missing
+        # Detect binary, install if missing
+        self._sm.transition(self._TunnelState.INSTALLING, "checking cloudflared binary")
         if not self._check_and_install_binary():
-            logger.error("cloudflared binary is missing and could not be installed.")
+            logger.error(
+                "Tunnel: cloudflared binary is missing and could not be installed. "
+                "Staying in FAILED state."
+            )
+            self._sm.transition(self._TunnelState.FAILED, "cloudflared not found")
             return
 
-        # Start supervisor thread
+        self._sm.transition(self._TunnelState.STARTING, "binary verified")
+
         self._monitor_thread = threading.Thread(
             target=self._supervise_tunnel,
             name="camz-tunnel-supervisor",
-            daemon=True
+            daemon=True,
         )
         self._monitor_thread.start()
         self.manager.event_bus.publish(TunnelStartedEvent(provider=self.config.TUNNEL_PROVIDER))
-        logger.info("TunnelService supervisor thread started.")
+        logger.info("Tunnel: supervisor thread started (protocol=%s).", self._protocol)
 
     def stop(self) -> None:
-        logger.info("Stopping TunnelService...")
+        logger.info("Tunnel: initiating graceful shutdown...")
+        self._sm.transition(self._TunnelState.STOPPING, "stop() called")
         self._shutdown_event.set()
-        
-        # Terminate cloudflared process
+
         with self._lock:
-            if self.process:
+            if self.process is not None:
                 try:
                     self.process.terminate()
-                    self.process.wait(timeout=2.0)
-                except Exception as exc:
-                    logger.warning("Failed to terminate cloudflared cleanly: %s", exc)
+                    self.process.wait(timeout=3.0)
+                    logger.info("Tunnel: cloudflared process terminated cleanly.")
+                except Exception:
+                    logger.warning("Tunnel: clean termination timed out, killing process.")
                     try:
                         self.process.kill()
-                    except Exception:
-                        pass
-                self.process = None
-                
-        # Join supervisor thread
+                        self.process.wait(timeout=2.0)
+                    except Exception as exc:
+                        logger.error("Tunnel: failed to kill cloudflared: %s", exc)
+                finally:
+                    self.process = None
+                    self._pid = None
+
         if self._monitor_thread and self._monitor_thread.is_alive():
-            self._monitor_thread.join(timeout=3.0)
-        
-        self._connected = False
+            self._monitor_thread.join(timeout=5.0)
+
         self._url = ""
+        self._candidate_url = ""
+        self._sm.transition(self._TunnelState.STOPPED, "shutdown complete")
         super().stop()
-        logger.info("TunnelService stopped.")
+        logger.info("Tunnel: service stopped.")
+
+    def is_active(self) -> bool:
+        return self._active and self._sm.is_active()
+
+    # ------------------------------------------------------------------ #
+    # Status                                                               #
+    # ------------------------------------------------------------------ #
 
     def get_status(self) -> dict[str, Any]:
-        """Return the current tunnel status details."""
+        """Return the full production-grade status dict for /health and /tunnel/status."""
         uptime = 0.0
-        if self._connected and self._start_time > 0.0:
+        if self._sm.is_connected() and self._start_time > 0.0:
             uptime = time.monotonic() - self._start_time
-            
-        latency = 0.0
-        if self._connected and self._url:
-            # Measure connection latency to the public URL using local HTTP connection
-            import http.client
-            from urllib.parse import urlparse
-            try:
-                parsed = urlparse(self._url)
-                conn_start = time.monotonic()
-                conn = http.client.HTTPSConnection(parsed.netloc, timeout=1.5)
-                conn.request("GET", "/health")
-                resp = conn.getresponse()
-                resp.read()
-                conn.close()
-                latency = (time.monotonic() - conn_start) * 1000.0
-            except Exception:
-                pass
+
+        latency = self._measure_latency()
 
         return {
             "enabled": self.config.TUNNEL_ENABLED,
             "provider": self.config.TUNNEL_PROVIDER,
-            "running": self._connected,
-            "url": self._url,
-            "uptime_seconds": int(uptime),
+            "state": self._sm.state.value,
+            "url": self._url if self._sm.is_connected() else "",
+            "protocol": self._protocol,
+            "pid": self._pid,
             "latency_ms": round(latency, 2) if latency > 0 else None,
-            "crash_count": self._crash_count,
+            "restart_count": self._restart_count,
+            "uptime_seconds": int(uptime),
+            "arch": self._arch,
+            "version": self._version,
+            # Backward-compat aliases still present for older dashboard code
+            "running": self._sm.is_connected(),
+            "crash_count": self._restart_count,
         }
 
+    def get_log_history(self) -> list[str]:
+        with self._lock:
+            return list(self._log_history)
+
+    # ------------------------------------------------------------------ #
+    # Installer                                                            #
+    # ------------------------------------------------------------------ #
+
     def _check_and_install_binary(self) -> bool:
-        """Verify binary presence in PATH. Trigger auto-installation if missing and allowed."""
+        """
+        Verify cloudflared is in PATH.
+        If missing and install_if_missing is True, attempt platform-aware installation.
+        On Debian/apt systems uses `dpkg --print-architecture` for correct arch mapping.
+        """
         import shutil
+        import subprocess
+
         if shutil.which("cloudflared") is not None:
+            self._version = self._read_cloudflared_version()
+            self._arch = self._detect_arch()
             return True
 
-        if not self.config.TUNNEL_INSTALL_IF_MISSING:
-            logger.warning("cloudflared binary not found and install_if_missing is disabled.")
+        if not getattr(self.config, "TUNNEL_INSTALL_IF_MISSING", True):
+            logger.warning("Tunnel: cloudflared missing and install_if_missing is False.")
             return False
 
-        logger.info("cloudflared missing. Attempting auto-installation...")
-        import subprocess
-        
-        # Check platform package manager
-        pacman = shutil.which("pacman")
-        apt = shutil.which("apt-get")
-        dnf = shutil.which("dnf")
-        
+        logger.info("Tunnel: cloudflared not found — attempting auto-install...")
+        self._sm.transition(self._TunnelState.INSTALLING, "auto-installing cloudflared")
+
         try:
-            if pacman:
-                logger.info("Arch Linux detected. Invoking pacman...")
-                subprocess.check_call(["sudo", "pacman", "-S", "--noconfirm", "cloudflared"])
-            elif apt:
-                logger.info("Debian/Ubuntu/RPi OS detected. Invoking apt-get...")
-                import platform
-                arch = platform.machine()
-                deb_arch = "amd64"
-                if arch == "aarch64":
-                    deb_arch = "arm64"
-                elif arch.startswith("armv7") or arch == "armv6l":
-                    deb_arch = "arm"
-                
-                url = f"https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-{deb_arch}.deb"
+            if shutil.which("pacman"):
+                logger.info("Tunnel: Arch Linux — using pacman.")
+                subprocess.check_call(
+                    ["sudo", "pacman", "-Sy", "--noconfirm", "cloudflared"],
+                    timeout=120,
+                )
+
+            elif shutil.which("apt-get"):
+                arch = self._detect_dpkg_arch()
+                logger.info("Tunnel: Debian/Ubuntu/Raspberry Pi OS — arch=%s, using .deb.", arch)
+                url = (
+                    f"https://github.com/cloudflare/cloudflared/releases/latest/download/"
+                    f"cloudflared-linux-{arch}.deb"
+                )
                 import tempfile
                 with tempfile.NamedTemporaryFile(suffix=".deb", delete=False) as tmp:
                     tmp_path = tmp.name
-                
-                logger.info("Downloading deb package from %s to %s...", url, tmp_path)
-                subprocess.check_call(["curl", "-L", "-o", tmp_path, url])
-                subprocess.check_call(["sudo", "dpkg", "-i", tmp_path])
-                subprocess.call(["sudo", "apt-get", "install", "-f", "-y"])
-                import os
-                os.unlink(tmp_path)
-            elif dnf:
-                logger.info("Fedora detected. Invoking dnf...")
-                import platform
-                arch = platform.machine()
-                rpm_arch = "x86_64"
-                if arch == "aarch64":
-                    rpm_arch = "aarch64"
-                url = f"https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-{rpm_arch}.rpm"
-                subprocess.check_call(["sudo", "dnf", "install", "-y", url])
+                logger.info("Tunnel: downloading %s → %s", url, tmp_path)
+                subprocess.check_call(["curl", "-fsSL", "-o", tmp_path, url], timeout=120)
+                subprocess.check_call(["sudo", "dpkg", "-i", tmp_path], timeout=60)
+                subprocess.call(["sudo", "apt-get", "install", "-f", "-y"], timeout=60)
+                import os as _os
+                _os.unlink(tmp_path)
+
+            elif shutil.which("dnf"):
+                arch = self._detect_rpm_arch()
+                logger.info("Tunnel: Fedora/RHEL — arch=%s, using .rpm.", arch)
+                url = (
+                    f"https://github.com/cloudflare/cloudflared/releases/latest/download/"
+                    f"cloudflared-linux-{arch}.rpm"
+                )
+                subprocess.check_call(["sudo", "dnf", "install", "-y", url], timeout=120)
+
             else:
-                logger.warning("No supported package manager detected. Cannot auto-install cloudflared.")
+                logger.warning("Tunnel: no supported package manager found for auto-install.")
                 return False
-                
-            if shutil.which("cloudflared") is not None:
-                logger.info("cloudflared package auto-installation succeeded.")
-                return True
+
         except Exception as exc:
-            logger.error("Auto-installation failed: %s", exc)
-            
+            logger.error("Tunnel: auto-install failed: %s", exc)
+            return False
+
+        if shutil.which("cloudflared") is not None:
+            self._version = self._read_cloudflared_version()
+            self._arch = self._detect_arch()
+            logger.info("Tunnel: cloudflared installed successfully (version=%s).", self._version)
+            return True
+
+        logger.error("Tunnel: auto-install completed but cloudflared still not found in PATH.")
         return False
 
+    def _detect_dpkg_arch(self) -> str:
+        """Use `dpkg --print-architecture` for canonical Debian architecture string."""
+        import subprocess
+        try:
+            result = subprocess.check_output(
+                ["dpkg", "--print-architecture"], timeout=5
+            ).decode().strip()
+            # cloudflared release filenames use these exact strings:
+            #   amd64, arm64, arm (for armhf)
+            mapping = {"amd64": "amd64", "arm64": "arm64", "armhf": "arm", "armel": "arm"}
+            return mapping.get(result, result)
+        except Exception:
+            return self._detect_arch_fallback()
+
+    def _detect_rpm_arch(self) -> str:
+        """Detect architecture for RPM-based systems."""
+        import platform
+        machine = platform.machine()
+        if machine == "x86_64":
+            return "x86_64"
+        if machine == "aarch64":
+            return "aarch64"
+        return machine
+
+    def _detect_arch(self) -> str:
+        """Return human-readable arch string for display purposes."""
+        import shutil
+        import subprocess
+        if shutil.which("dpkg"):
+            try:
+                return subprocess.check_output(
+                    ["dpkg", "--print-architecture"], timeout=5
+                ).decode().strip()
+            except Exception:
+                pass
+        return self._detect_arch_fallback()
+
+    def _detect_arch_fallback(self) -> str:
+        import platform
+        machine = platform.machine()
+        mapping = {
+            "x86_64": "amd64",
+            "amd64": "amd64",
+            "aarch64": "arm64",
+            "armv7l": "armhf",
+            "armv6l": "armhf",
+        }
+        return mapping.get(machine, machine)
+
+    def _read_cloudflared_version(self) -> str:
+        import subprocess
+        import shutil
+        if not shutil.which("cloudflared"):
+            return ""
+        try:
+            out = subprocess.check_output(
+                ["cloudflared", "--version"], stderr=subprocess.STDOUT, timeout=5
+            ).decode().strip()
+            # Typical output: "cloudflared version 2024.8.2 (built 2024-08-20)"
+            parts = out.split()
+            if len(parts) >= 3:
+                return parts[2]
+            return out
+        except Exception:
+            return ""
+
+    # ------------------------------------------------------------------ #
+    # Supervisor loop                                                      #
+    # ------------------------------------------------------------------ #
+
     def _supervise_tunnel(self) -> None:
-        """Supervisor loop restarting cloudflared process with exponential backoff on crash."""
+        """
+        Main supervisor loop.
+        Handles: process spawning, log scraping, URL candidate extraction,
+        connectivity validation, protocol fallback, and exponential backoff.
+        """
         import subprocess
         import re
 
-        while not self._shutdown_event.is_set():
-            cmd = ["cloudflared"]
-            
-            # Form arguments based on configuration
-            if self.config.TUNNEL_TOKEN:
-                cmd.extend(["tunnel", "--no-autoupdate", "run", "--token", self.config.TUNNEL_TOKEN])
-            elif self.config.TUNNEL_HOSTNAME:
-                cmd.extend(["tunnel", "run"])
-                self._url = f"https://{self.config.TUNNEL_HOSTNAME}"
-            else:
-                cmd.extend(["tunnel", "--url", self.config.TUNNEL_SHARE_LOCALHOST])
+        max_retries = getattr(self.config, "TUNNEL_MAX_RETRIES", 5)
+        quic_fail_threshold = getattr(self.config, "TUNNEL_QUIC_FAIL_THRESHOLD", 3)
 
-            logger.info("Launching cloudflared process: %s", " ".join([c if "token" not in cmd[i-1:i] else "*****" for i, c in enumerate(cmd)]))
-            
+        while not self._shutdown_event.is_set():
+            # Build cloudflared command
+            cmd = self._build_command()
+            logger.info(
+                "Tunnel: launching cloudflared [protocol=%s, cmd=%s]",
+                self._protocol,
+                " ".join(
+                    "*****" if i > 0 and cmd[i - 1] == "--token" else c
+                    for i, c in enumerate(cmd)
+                ),
+            )
+
+            self._sm.transition(self._TunnelState.STARTING, "launching cloudflared")
+            self._candidate_url = ""
+            url_found = False
+            connected = False
+
             try:
                 with self._lock:
                     if self._shutdown_event.is_set():
@@ -1348,50 +1535,183 @@ class TunnelService(BaseService):
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
                         text=True,
-                        bufsize=1
+                        bufsize=1,
                     )
-                
-                self._connected = False
-                url_found = False
-                
-                while True:
-                    line = self.process.stdout.readline()
-                    if not line:
+                    self._pid = self.process.pid
+                    logger.info("Tunnel: cloudflared PID=%d", self._pid)
+
+                self._sm.transition(self._TunnelState.CONNECTING, "process started")
+
+                # Read cloudflared output line by line
+                for raw_line in self.process.stdout:
+                    if self._shutdown_event.is_set():
                         break
-                        
-                    self._log_history.append(line.strip())
-                    
-                    # Parse Quick Tunnel URL
-                    if not url_found and not self.config.TUNNEL_HOSTNAME:
-                        match = re.search(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com', line)
+
+                    line = raw_line.strip()
+                    if line:
+                        with self._lock:
+                            self._log_history.append(line)
+                        self._interpret_log_line(line)
+
+                    # Scrape Quick Tunnel URL from log output
+                    if not url_found and not self.config.TUNNEL_HOSTNAME and not self.config.TUNNEL_TOKEN:
+                        match = re.search(r'https://[a-zA-Z0-9\-]+\.trycloudflare\.com', line)
                         if match:
-                            self._url = match.group(0)
+                            self._candidate_url = match.group(0)
                             url_found = True
-                            logger.info("Cloudflare Quick Tunnel URL discovered: %s", self._url)
+                            logger.info("Tunnel: URL candidate scraped: %s", self._candidate_url)
 
-                    # Parse connection successful logs
-                    if not self._connected and ("registered" in line or "Connection" in line and "registered" in line or "Registered tunnel connection" in line or "INF Connection" in line):
-                        self._connected = True
-                        self._start_time = time.monotonic()
-                        self._backoff_delay = 1.0
-                        self.manager.event_bus.publish(TunnelConnectedEvent(url=self._url))
-                        logger.info("Cloudflare Tunnel connected successfully.")
-                        
+                    # Named tunnel: URL is the configured hostname
+                    if not url_found and self.config.TUNNEL_HOSTNAME:
+                        self._candidate_url = f"https://{self.config.TUNNEL_HOSTNAME}"
+                        url_found = True
+                        logger.info("Tunnel: named tunnel URL: %s", self._candidate_url)
+
+                    # Once URL is known, run connectivity validation
+                    if url_found and not connected and not self._shutdown_event.is_set():
+                        connected = self._run_validation(self._candidate_url)
+                        if connected:
+                            self._url = self._candidate_url
+                            self._start_time = time.monotonic()
+                            self._backoff_delay = 1.0
+                            self._quic_fail_count = 0  # reset on success
+                            self._sm.transition(self._TunnelState.CONNECTED, "connectivity validated")
+                            self.manager.event_bus.publish(TunnelConnectedEvent(url=self._url))
+                            logger.info(
+                                "Tunnel: CONNECTED [url=%s, protocol=%s]",
+                                self._url, self._protocol,
+                            )
+
                 exit_code = self.process.wait()
-                logger.warning("cloudflared process terminated with exit code: %s", exit_code)
-            except Exception as exc:
-                logger.error("Exception starting/running cloudflared: %s", exc)
+                logger.warning("Tunnel: cloudflared exited with code %d.", exit_code)
 
-            self._connected = False
-            self.manager.event_bus.publish(TunnelDisconnectedEvent(error="Process exited or failed to start"))
-            
+                # Track QUIC failures for protocol fallback
+                if self._protocol == "quic" and exit_code != 0:
+                    self._quic_fail_count += 1
+                    logger.info(
+                        "Tunnel: QUIC failure count = %d / %d",
+                        self._quic_fail_count, quic_fail_threshold,
+                    )
+
+            except Exception as exc:
+                logger.error("Tunnel: exception in supervisor: %s", exc)
+            finally:
+                with self._lock:
+                    self.process = None
+                    self._pid = None
+                self._url = ""
+                self._candidate_url = ""
+
             if self._shutdown_event.is_set():
                 break
-                
-            self._crash_count += 1
-            self.manager.event_bus.publish(TunnelRestartedEvent(attempt=self._crash_count))
-            
-            logger.info("Tunnel crashed (Count: %d). Restarting in %.2fs...", self._crash_count, self._backoff_delay)
-            self._shutdown_event.wait(self._backoff_delay)
-            self._backoff_delay = min(60.0, self._backoff_delay * 2.0)
 
+            # Transition to FAILED
+            self._sm.transition(self._TunnelState.FAILED, "cloudflared process exited")
+            self.manager.event_bus.publish(
+                TunnelDisconnectedEvent(error="cloudflared process exited")
+            )
+
+            self._restart_count += 1
+            self.manager.event_bus.publish(TunnelRestartedEvent(attempt=self._restart_count))
+
+            # Check max retries
+            if max_retries > 0 and self._restart_count >= max_retries:
+                logger.error(
+                    "Tunnel: reached max retries (%d). Entering permanent FAILED state.",
+                    max_retries,
+                )
+                break
+
+            # Protocol fallback: QUIC → HTTP/2
+            if self._quic_fail_count >= quic_fail_threshold and self._protocol == "quic":
+                logger.warning(
+                    "Tunnel: QUIC failed %d consecutive times — switching to HTTP/2.",
+                    self._quic_fail_count,
+                )
+                self.manager.event_bus.publish(
+                    TunnelProtocolFallbackEvent("quic", "http2")
+                )
+                self._protocol = "http2"
+
+            # Exponential backoff
+            delay = self._backoff_delay
+            logger.info(
+                "Tunnel: restarting in %.1fs (attempt %d, protocol=%s)...",
+                delay, self._restart_count, self._protocol,
+            )
+            self._backoff_delay = min(60.0, self._backoff_delay * 2.0)
+            self._shutdown_event.wait(delay)
+
+        # Loop exited — ensure clean state
+        if not self._sm.state == self._TunnelState.STOPPING:
+            self._sm.transition(self._TunnelState.STOPPED, "supervisor exited")
+
+    def _build_command(self) -> list[str]:
+        """Build the cloudflared command based on configuration and current protocol."""
+        cmd = ["cloudflared"]
+
+        if self.config.TUNNEL_TOKEN:
+            # Named Tunnel via token
+            cmd += ["tunnel", "--no-autoupdate", "run", "--token", self.config.TUNNEL_TOKEN]
+        elif self.config.TUNNEL_HOSTNAME:
+            # Named Tunnel via hostname
+            cmd += ["tunnel", "run"]
+        else:
+            # Quick Tunnel (TryCloudflare)
+            cmd += [
+                "tunnel",
+                "--no-autoupdate",
+                "--protocol", self._protocol,
+                "--url", self.config.TUNNEL_SHARE_LOCALHOST,
+            ]
+
+        return cmd
+
+    def _run_validation(self, candidate_url: str) -> bool:
+        """Run connectivity validation, publish events, return True on success."""
+        logger.info("Tunnel: starting connectivity validation for %s...", candidate_url)
+        self.manager.event_bus.publish(TunnelValidatingEvent(url=candidate_url))
+
+        ok, reason = self._validator.validate(candidate_url)
+        if ok:
+            logger.info("Tunnel: validation PASSED for %s.", candidate_url)
+            return True
+
+        logger.warning("Tunnel: validation FAILED for %s — %s", candidate_url, reason)
+        self.manager.event_bus.publish(
+            TunnelValidationFailedEvent(url=candidate_url, reason=reason)
+        )
+        return False
+
+    def _interpret_log_line(self, line: str) -> None:
+        """Parse cloudflared log lines and emit human-readable structured log entries."""
+        lower = line.lower()
+        if "err" in lower or "fail" in lower or "error" in lower:
+            logger.warning("Tunnel [cloudflared]: %s", line)
+        elif "warn" in lower:
+            logger.info("Tunnel [cloudflared warn]: %s", line)
+        elif any(k in lower for k in ("connection", "registered", "connected", "url")):
+            logger.debug("Tunnel [cloudflared]: %s", line)
+        # Interpret known warning patterns
+        if "1033" in line:
+            logger.warning("Tunnel: Cloudflare Error 1033 detected — tunnel not yet registered with edge.")
+        if "quic" in lower and ("fail" in lower or "unavailable" in lower or "error" in lower):
+            logger.warning("Tunnel: QUIC protocol issue detected — will count toward fallback threshold.")
+
+    def _measure_latency(self) -> float:
+        """Non-blocking best-effort latency measurement to the active tunnel URL."""
+        if not self._sm.is_connected() or not self._url:
+            return 0.0
+        try:
+            import http.client
+            from urllib.parse import urlparse
+            parsed = urlparse(self._url)
+            start = time.monotonic()
+            conn = http.client.HTTPSConnection(parsed.netloc, timeout=1.5)
+            conn.request("HEAD", "/")
+            resp = conn.getresponse()
+            resp.read()
+            conn.close()
+            return (time.monotonic() - start) * 1000.0
+        except Exception:
+            return 0.0

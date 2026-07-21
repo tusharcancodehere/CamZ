@@ -275,24 +275,54 @@ export const Dashboard: React.FC = () => {
                 <span className="text-sm font-semibold text-slate-200">Cloudflare Tunnel</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <span className={`h-2 w-2 rounded-full ${health?.tunnel?.running ? 'bg-emerald-500 animate-pulse' : 'bg-slate-600'}`} />
-                <span className="text-xs font-semibold text-slate-300">
-                  {health?.tunnel?.running ? 'Connected' : 'Disconnected'}
-                </span>
+                {/* State badge — color by state */}
+                {(() => {
+                  const state: string = health?.tunnel?.state || (health?.tunnel?.running ? 'CONNECTED' : 'STOPPED')
+                  const colors: Record<string, string> = {
+                    CONNECTED: 'bg-emerald-500 animate-pulse',
+                    CONNECTING: 'bg-amber-400 animate-pulse',
+                    STARTING: 'bg-blue-400 animate-pulse',
+                    INSTALLING: 'bg-blue-400 animate-pulse',
+                    DEGRADED: 'bg-amber-500 animate-pulse',
+                    FAILED: 'bg-rose-500',
+                    STOPPING: 'bg-slate-500',
+                    STOPPED: 'bg-slate-600',
+                  }
+                  const textColors: Record<string, string> = {
+                    CONNECTED: 'text-emerald-400',
+                    CONNECTING: 'text-amber-400',
+                    STARTING: 'text-blue-400',
+                    INSTALLING: 'text-blue-400',
+                    DEGRADED: 'text-amber-400',
+                    FAILED: 'text-rose-400',
+                    STOPPING: 'text-slate-400',
+                    STOPPED: 'text-slate-400',
+                  }
+                  const dotClass = colors[state] || 'bg-slate-600'
+                  const textClass = textColors[state] || 'text-slate-300'
+                  return (
+                    <>
+                      <span className={`h-2 w-2 rounded-full ${dotClass}`} />
+                      <span className={`text-xs font-semibold ${textClass}`}>{state}</span>
+                    </>
+                  )
+                })()}
               </div>
             </div>
 
-            {health?.tunnel?.running ? (
+            {health?.tunnel?.state === 'CONNECTED' || health?.tunnel?.running ? (
               <div className="space-y-4">
                 {/* Public URL Box */}
                 <div className="flex flex-col gap-1.5">
                   <span className="text-[10px] text-slate-500 font-semibold tracking-wider uppercase">Public URL</span>
                   <div className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-800 bg-slate-950">
-                    <span className="text-xs text-sky-400 font-mono select-all truncate flex-1">{health.tunnel.url}</span>
+                    <span className="text-xs text-sky-400 font-mono select-all truncate flex-1">{health?.tunnel?.url}</span>
                     <button
                       onClick={() => {
-                        navigator.clipboard.writeText(health.tunnel.url);
-                        addNotification('Tunnel URL copied', 'success');
+                        if (health?.tunnel?.url) {
+                          navigator.clipboard.writeText(health.tunnel.url);
+                          addNotification('Tunnel URL copied', 'success');
+                        }
                       }}
                       className="p-1.5 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition-colors"
                       title="Copy URL"
@@ -300,7 +330,7 @@ export const Dashboard: React.FC = () => {
                       <Copy className="h-3.5 w-3.5" />
                     </button>
                     <a
-                      href={health.tunnel.url}
+                      href={health?.tunnel?.url}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="p-1.5 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-sky-400 transition-colors"
@@ -312,36 +342,48 @@ export const Dashboard: React.FC = () => {
                 </div>
 
                 {/* Tunnel Details & QR Code */}
-                <div className="flex items-center gap-4">
+                <div className="flex items-start gap-4">
                   {/* Info stats */}
                   <div className="flex-1 space-y-2">
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-slate-500">Uptime:</span>
-                      <span className="font-mono text-slate-300">{formatTunnelUptime(health.tunnel.uptime_seconds)}</span>
+                      <span className="font-mono text-slate-300">{formatTunnelUptime(health?.tunnel?.uptime_seconds || 0)}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-500">Protocol:</span>
+                      <span className="font-mono text-slate-300">{health?.tunnel?.protocol || 'quic'}</span>
                     </div>
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-slate-500">Latency:</span>
                       <span className="font-mono text-slate-300">
-                        {health.tunnel.latency_ms ? `${health.tunnel.latency_ms} ms` : 'Measuring...'}
+                        {health?.tunnel?.latency_ms ? `${health.tunnel.latency_ms} ms` : 'Measuring...'}
                       </span>
                     </div>
                     <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500">Crashes:</span>
-                      <span className="font-mono text-slate-300">{health.tunnel.crash_count || 0}</span>
+                      <span className="text-slate-500">Restarts:</span>
+                      <span className="font-mono text-slate-300">{health?.tunnel?.restart_count ?? health?.tunnel?.crash_count ?? 0}</span>
                     </div>
+                    {health?.tunnel?.arch && (
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-slate-500">Arch:</span>
+                        <span className="font-mono text-slate-300">{health.tunnel.arch}</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* QR code */}
-                  <div className="relative group rounded-lg overflow-hidden border border-slate-800 bg-white p-1 h-20 w-20 flex items-center justify-center shadow-lg shadow-black/40">
-                    <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(health.tunnel.url)}`}
-                      alt="Tunnel QR Code"
-                      className="h-full w-full"
-                    />
-                  </div>
+                  {health?.tunnel?.url && (
+                    <div className="relative group rounded-lg overflow-hidden border border-slate-800 bg-white p-1 h-20 w-20 flex items-center justify-center shadow-lg shadow-black/40">
+                      <img
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(health.tunnel.url)}`}
+                        alt="Tunnel QR Code"
+                        className="h-full w-full"
+                      />
+                    </div>
+                  )}
                 </div>
 
-                {/* Action button */}
+                {/* Restart button */}
                 <button
                   onClick={async () => {
                     try {
@@ -365,14 +407,21 @@ export const Dashboard: React.FC = () => {
               <div className="flex flex-col items-center justify-center py-6 text-center text-slate-500 gap-2">
                 <Link className="h-8 w-8 text-slate-700" />
                 <div className="text-xs">
-                  <p className="font-medium text-slate-400">Tunnel Offline</p>
-                  <p className="text-[10px] mt-0.5">Enable and start the tunnel using CLI or config.toml.</p>
+                  <p className="font-medium text-slate-400">Tunnel {health?.tunnel?.state || 'Offline'}</p>
+                  <p className="text-[10px] mt-0.5">
+                    {health?.tunnel?.state === 'FAILED'
+                      ? 'Tunnel failed after max retries. Use camz tunnel restart to try again.'
+                      : health?.tunnel?.state === 'CONNECTING' || health?.tunnel?.state === 'STARTING'
+                      ? 'Connecting to Cloudflare... validating endpoint.'
+                      : 'Enable and start the tunnel using CLI or config.toml.'}
+                  </p>
                 </div>
                 {health?.tunnel?.enabled && (
                   <button
                     onClick={async () => {
+                      const endpoint = health?.tunnel?.state === 'FAILED' ? '/tunnel/restart' : '/tunnel/start';
                       try {
-                        const res = await fetch('/tunnel/start', { method: 'POST' });
+                        const res = await fetch(endpoint, { method: 'POST' });
                         if (res.ok) {
                           addNotification('Tunnel startup requested', 'success');
                         } else {
@@ -385,7 +434,7 @@ export const Dashboard: React.FC = () => {
                     className="mt-3 flex items-center gap-2 rounded-xl bg-sky-500 hover:bg-sky-600 px-4 py-2 text-xs font-semibold text-slate-950 transition-colors shadow-lg shadow-sky-500/10"
                   >
                     <Play className="h-3.5 w-3.5" />
-                    Start Tunnel
+                    {health?.tunnel?.state === 'FAILED' ? 'Restart Tunnel' : 'Start Tunnel'}
                   </button>
                 )}
               </div>
@@ -396,3 +445,4 @@ export const Dashboard: React.FC = () => {
     </div>
   )
 }
+

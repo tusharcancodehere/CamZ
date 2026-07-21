@@ -122,6 +122,10 @@ _config_data = {
         "quick_tunnel": True,
         "log_level": "info",
         "token": "",
+        "protocol": "",                     # "" = auto (quic), "http2" = forced fallback
+        "max_retries": 5,                    # max restart attempts before entering FAILED permanently
+        "validation_timeout_seconds": 5.0,   # per-check HTTP timeout during connectivity validation
+        "quic_fail_threshold": 3,            # consecutive QUIC failures before switching to HTTP/2
     }
 }
 
@@ -222,6 +226,10 @@ _config_data["tunnel"]["hostname"] = os.getenv("CAMZ_TUNNEL_HOSTNAME", _config_d
 _config_data["tunnel"]["quick_tunnel"] = _env_bool(os.getenv("CAMZ_TUNNEL_QUICK", str(_config_data["tunnel"]["quick_tunnel"])))
 _config_data["tunnel"]["log_level"] = os.getenv("CAMZ_TUNNEL_LOG_LEVEL", _config_data["tunnel"]["log_level"])
 _config_data["tunnel"]["token"] = os.getenv("CAMZ_TUNNEL_TOKEN", _config_data["tunnel"]["token"])
+_config_data["tunnel"]["protocol"] = os.getenv("CAMZ_TUNNEL_PROTOCOL", _config_data["tunnel"]["protocol"])
+_config_data["tunnel"]["max_retries"] = int(os.getenv("CAMZ_TUNNEL_MAX_RETRIES", str(_config_data["tunnel"]["max_retries"])))
+_config_data["tunnel"]["validation_timeout_seconds"] = float(os.getenv("CAMZ_TUNNEL_VALIDATION_TIMEOUT", str(_config_data["tunnel"]["validation_timeout_seconds"])))
+_config_data["tunnel"]["quic_fail_threshold"] = int(os.getenv("CAMZ_TUNNEL_QUIC_FAIL_THRESHOLD", str(_config_data["tunnel"]["quic_fail_threshold"])))
 
 # Legacy environment variables support
 if "CAMZ_CAMERA_INDEX" in os.environ:
@@ -279,6 +287,10 @@ TUNNEL_HOSTNAME = _config_data["tunnel"]["hostname"]
 TUNNEL_QUICK_TUNNEL = _config_data["tunnel"]["quick_tunnel"]
 TUNNEL_LOG_LEVEL = _config_data["tunnel"]["log_level"]
 TUNNEL_TOKEN = _config_data["tunnel"]["token"]
+TUNNEL_PROTOCOL = _config_data["tunnel"]["protocol"]
+TUNNEL_MAX_RETRIES = _config_data["tunnel"]["max_retries"]
+TUNNEL_VALIDATION_TIMEOUT = _config_data["tunnel"]["validation_timeout_seconds"]
+TUNNEL_QUIC_FAIL_THRESHOLD = _config_data["tunnel"]["quic_fail_threshold"]
 
 # Resolve index representation for backward compatibility with older OpenCV codes
 try:

@@ -628,20 +628,37 @@ def action_logs(args: argparse.Namespace) -> None:
         print("\nExiting log tail.")
 
 
+def _format_uptime(seconds: int) -> str:
+    """Format seconds into human-readable uptime string."""
+    if seconds <= 0:
+        return "0s"
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    s = seconds % 60
+    if h > 0:
+        return f"{h}h {m}m {s}s"
+    if m > 0:
+        return f"{m}m {s}s"
+    return f"{s}s"
+
+
 def action_tunnel(args: argparse.Namespace) -> None:
     """Delegate or control Cloudflare Tunnel operations."""
     import httpx
-    
-    subcmd = args.tunnel_command
+
+    subcmd = getattr(args, "tunnel_command", None)
     if not subcmd:
         subcmd = "status"
-        
+
+    if subcmd == "doctor":
+        action_tunnel_doctor(args)
+        return
+
     if subcmd == "logs":
         log_path = config.LOG_FILE
         if not log_path.is_file():
             print_fail(f"Log file does not exist: {log_path}")
             return
-
         print_info(f"Scanning tunnel logs from {log_path}...")
         found = False
         with open(log_path, "r") as f:
@@ -654,44 +671,216 @@ def action_tunnel(args: argparse.Namespace) -> None:
         return
 
     url_map = {
-        "start": ("/tunnel/start", "POST", "Tunnel started successfully.", "Failed to start tunnel."),
-        "stop": ("/tunnel/stop", "POST", "Tunnel stopped successfully.", "Failed to stop tunnel."),
+        "start":   ("/tunnel/start",   "POST", "Tunnel started successfully.",   "Failed to start tunnel."),
+        "stop":    ("/tunnel/stop",    "POST", "Tunnel stopped successfully.",   "Failed to stop tunnel."),
         "restart": ("/tunnel/restart", "POST", "Tunnel restarted successfully.", "Failed to restart tunnel."),
-        "status": ("/tunnel/status", "GET", "", ""),
+        "status":  ("/tunnel/status",  "GET",  "", ""),
     }
-    
+
+    if subcmd not in url_map:
+        print_fail(f"Unknown tunnel subcommand: {subcmd!r}. Use: start|stop|restart|status|logs|doctor")
+        return
+
     path, method, success_msg, error_msg = url_map[subcmd]
     endpoint = f"http://127.0.0.1:{config.PORT}{path}"
-    
+
     try:
         if method == "POST":
             r = httpx.post(endpoint, timeout=5.0)
         else:
             r = httpx.get(endpoint, timeout=3.0)
-            
+
         if r.status_code == 200:
             data = r.json()
             if subcmd == "status":
-                status = data
-                print("==================================================")
-                print("            Cloudflare Tunnel Status              ")
-                print("==================================================")
-                print(f"Enabled:          {status.get('enabled')}")
-                print(f"Provider:         {status.get('provider')}")
-                print(f"Running:          {status.get('running')}")
-                print(f"Public URL:       {status.get('url') or 'None'}")
-                print(f"Uptime:           {status.get('uptime_seconds')} seconds")
-                print(f"Latency:          {status.get('latency_ms') or 'N/A'} ms")
-                print(f"Crashes:          {status.get('crash_count')}")
-                print("==================================================")
+                s = data
+                state = s.get("state", "UNKNOWN")
+                # Color state
+                state_colors = {
+                    "CONNECTED": "\033[92m",
+                    "CONNECTING": "\033[93m",
+                    "STARTING": "\033[94m",
+                    "DEGRADED": "\033[93m",
+                    "FAILED": "\033[91m",
+                    "STOPPED": "\033[90m",
+                    "STOPPING": "\033[90m",
+                    "INSTALLING": "\033[94m",
+                }
+                color = state_colors.get(state, "")
+                reset = "\033[0m"
+                print("══════════════════════════════════════════════════")
+                print("             Cloudflare Tunnel Status             ")
+                print("══════════════════════════════════════════════════")
+                print(f"State:            {color}{state}{reset}")
+                print(f"Provider:         {s.get('provider', 'cloudflare')}")
+                print(f"Protocol:         {s.get('protocol', 'unknown')}")
+                print(f"Public URL:       {s.get('url') or '(not yet connected)'}")
+                print(f"PID:              {s.get('pid') or 'N/A'}")
+                print(f"Architecture:     {s.get('arch') or 'detecting...'}")
+                print(f"Version:          {s.get('version') or 'unknown'}")
+                print(f"Uptime:           {_format_uptime(s.get('uptime_seconds', 0))}")
+                lat = s.get("latency_ms")
+                print(f"Latency:          {f'{lat} ms' if lat else 'N/A'}")
+                print(f"Restart Count:    {s.get('restart_count', s.get('crash_count', 0))}")
+                print(f"Enabled:          {s.get('enabled')}")
+                print("══════════════════════════════════════════════════")
             else:
                 print_pass(success_msg)
-                if data.get("tunnel", {}).get("url"):
-                    print(f"Public URL: {data['tunnel']['url']}")
+                inner = data.get("tunnel", {})
+                if inner.get("url"):
+                    print(f"Public URL: {inner['url']}")
+                if inner.get("state"):
+                    print(f"State:      {inner['state']}")
         else:
             print_fail(f"{error_msg} Server returned status code: {r.status_code}")
     except Exception as e:
         print_fail(f"Could not connect to CAMZ server (is it offline?): {e}")
+
+
+def action_tunnel_doctor(args: argparse.Namespace) -> None:
+    """Run a 9-check diagnostic for Cloudflare Tunnel connectivity."""
+    import socket
+    import http.client
+    import ssl
+
+    print("══════════════════════════════════════════════════")
+    print("           Cloudflare Tunnel Doctor               ")
+    print("══════════════════════════════════════════════════")
+
+    issues = 0
+
+    # 1. cloudflared installed
+    cloudflared_path = shutil.which("cloudflared")
+    if cloudflared_path:
+        version = ""
+        try:
+            out = subprocess.check_output(
+                ["cloudflared", "--version"], stderr=subprocess.STDOUT, timeout=5
+            ).decode().strip()
+            parts = out.split()
+            version = parts[2] if len(parts) >= 3 else out
+        except Exception:
+            pass
+        print_pass(f"cloudflared installed: {cloudflared_path} (version={version or 'unknown'})")
+    else:
+        print_fail("cloudflared is NOT installed. Install via: curl -L ... | sudo dpkg -i")
+        issues += 1
+
+    # 2. Architecture detection
+    try:
+        arch = subprocess.check_output(
+            ["dpkg", "--print-architecture"], stderr=subprocess.DEVNULL, timeout=5
+        ).decode().strip()
+        print_pass(f"Architecture (dpkg): {arch}")
+    except Exception:
+        import platform
+        arch = platform.machine()
+        mapping = {"x86_64": "amd64", "aarch64": "arm64", "armv7l": "armhf", "armv6l": "armhf"}
+        arch = mapping.get(arch, arch)
+        print_warn(f"Architecture (fallback): {arch} (dpkg not available)")
+
+    # 3. DNS resolution
+    try:
+        socket.getaddrinfo("cloudflare.com", 443, proto=socket.IPPROTO_TCP)
+        print_pass("DNS resolution: cloudflare.com resolves OK")
+    except socket.gaierror as e:
+        print_fail(f"DNS resolution FAILED: {e} — Check /etc/resolv.conf or network")
+        issues += 1
+
+    # 4. HTTPS connectivity to Cloudflare edge
+    try:
+        ctx = ssl.create_default_context()
+        conn = http.client.HTTPSConnection("cloudflare.com", 443, timeout=5, context=ctx)
+        conn.request("HEAD", "/")
+        resp = conn.getresponse()
+        resp.read()
+        conn.close()
+        print_pass(f"Cloudflare HTTPS: reachable (HTTP {resp.status})")
+    except Exception as e:
+        print_fail(f"Cloudflare HTTPS FAILED: {e} — Check outbound port 443 firewall rules")
+        issues += 1
+
+    # 5. Localhost CAMZ reachable
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", config.PORT, timeout=3)
+        conn.request("GET", "/health")
+        resp = conn.getresponse()
+        resp.read()
+        conn.close()
+        if resp.status < 500:
+            print_pass(f"CAMZ localhost: reachable at 127.0.0.1:{config.PORT} (HTTP {resp.status})")
+        else:
+            print_warn(f"CAMZ localhost: server error HTTP {resp.status}")
+    except Exception as e:
+        print_fail(f"CAMZ localhost: CANNOT reach 127.0.0.1:{config.PORT} — {e}")
+        print_warn("Hint: Start CAMZ first with: camz start")
+        issues += 1
+
+    # 6. Local /health returns READY state
+    try:
+        import json as _json
+        conn = http.client.HTTPConnection("127.0.0.1", config.PORT, timeout=3)
+        conn.request("GET", "/health")
+        resp = conn.getresponse()
+        body = resp.read().decode("utf-8", errors="replace")
+        conn.close()
+        data = _json.loads(body)
+        app_state = str(data.get("app_state", "")).lower()
+        status = str(data.get("status", "")).lower()
+        if app_state in ("ready",) or status == "ok":
+            print_pass(f"CAMZ health: READY (app_state={app_state!r})")
+        else:
+            print_warn(f"CAMZ health: state={app_state!r} — may still be initializing")
+    except Exception as e:
+        print_warn(f"Could not parse /health: {e}")
+
+    # 7. Tunnel service state (via API)
+    try:
+        import httpx
+        r = httpx.get(f"http://127.0.0.1:{config.PORT}/tunnel/status", timeout=2.0)
+        if r.status_code == 200:
+            tdata = r.json()
+            tunnel_state = tdata.get("state", tdata.get("running", "unknown"))
+            url = tdata.get("url", "")
+            if tunnel_state == "CONNECTED":
+                print_pass(f"Tunnel state: CONNECTED (url={url})")
+            elif tunnel_state in ("STARTING", "CONNECTING"):
+                print_warn(f"Tunnel state: {tunnel_state} — still connecting")
+            else:
+                print_warn(f"Tunnel state: {tunnel_state} — start with: camz tunnel start")
+        else:
+            print_warn(f"Tunnel status endpoint returned HTTP {r.status_code}")
+    except Exception as e:
+        print_warn(f"Could not reach tunnel status endpoint: {e}")
+
+    # 8. Protocol in use
+    try:
+        import httpx
+        r = httpx.get(f"http://127.0.0.1:{config.PORT}/tunnel/status", timeout=2.0)
+        if r.status_code == 200:
+            protocol = r.json().get("protocol", "unknown")
+            print_pass(f"Protocol: {protocol}")
+    except Exception:
+        pass
+
+    # 9. Outbound port 443 firewall hint (try direct TCP to Cloudflare QUIC port 7844)
+    quic_ok = False
+    try:
+        with socket.create_connection(("cloudflare.com", 443), timeout=3):
+            quic_ok = True
+        print_pass("Outbound TCP port 443: open (required for HTTP/2 fallback)")
+    except Exception:
+        print_warn("Outbound TCP port 443: blocked — HTTP/2 may not work either")
+        issues += 1
+
+    print("══════════════════════════════════════════════════")
+    if issues == 0:
+        print_pass(f"All checks passed. Tunnel should work correctly.")
+    else:
+        print_fail(f"{issues} check(s) failed. See actionable hints above.")
+    print("══════════════════════════════════════════════════")
+
+
 
 
 def action_share(args: argparse.Namespace) -> None:
@@ -914,6 +1103,7 @@ def main() -> None:
     tunnel_subparsers.add_parser("restart", help="Restart the Cloudflare Tunnel service")
     tunnel_subparsers.add_parser("status", help="Get the Cloudflare Tunnel service status")
     tunnel_subparsers.add_parser("logs", help="View recent logs for the Cloudflare Tunnel service")
+    tunnel_subparsers.add_parser("doctor", help="Run Cloudflare Tunnel connectivity diagnostics")
 
     # Command: share
     subparsers.add_parser("share", help="Expose local stream over secure public URL via Cloudflare Tunnel")
