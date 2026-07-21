@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Eliminated zombie background processes from previous benchmark sessions consuming CPU.
 - Resolved stale root-level `recordings/` directories created by old pre-`runtime/` benchmark runs.
+- Fixed compile failure where React component `Sidebar` referenced missing local state variable `mobileSidebarOpen`.
+- Cleaned up unused `navigate` declaration and `useNavigate` import in `App.tsx` preventing strict compilation.
+- Fixed backend tests CI pipeline step (`backend-test`) by setting `PYTHONPATH: .` environment variable.
 
 ## [1.0.0-beta.1] - 2026-07-21
 
