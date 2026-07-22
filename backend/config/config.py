@@ -133,7 +133,10 @@ _config_data = {
 toml_path = BASE_DIR / "config.toml"
 if toml_path.is_file():
     try:
-        import tomllib
+        try:
+            import tomllib
+        except ImportError:
+            import tomli as tomllib
         with open(toml_path, "rb") as f:
             toml_data = tomllib.load(f)
             for section in _config_data:
@@ -147,6 +150,11 @@ _runtime_dir_str = os.getenv("CAMZ_RUNTIME_DIR", _config_data["system"]["runtime
 _runtime_dir = Path(_runtime_dir_str).resolve()
 if not _runtime_dir.is_absolute():
     _runtime_dir = (BASE_DIR / _runtime_dir_str).resolve()
+
+def _env_bool(val: Any) -> bool:
+    if isinstance(val, bool):
+        return val
+    return str(val).lower() in ("1", "true", "yes", "on")
 
 # 3. Overlay settings.json (from UI settings updates)
 settings_json_path = _runtime_dir / "settings.json"
@@ -172,13 +180,33 @@ if settings_json_path.is_file():
                 _config_data["recording"]["storage_limit_gb"] = float(settings_data["CAMZ_STORAGE_LIMIT_GB"])
             if "CAMZ_RETENTION_DAYS" in settings_data:
                 _config_data["recording"]["retention_days"] = int(settings_data["CAMZ_RETENTION_DAYS"])
+            # Tunnel settings in settings.json
+            if "TUNNEL_ENABLED" in settings_data:
+                _config_data["tunnel"]["enabled"] = _env_bool(settings_data["TUNNEL_ENABLED"])
+            if "TUNNEL_PROVIDER" in settings_data:
+                _config_data["tunnel"]["provider"] = str(settings_data["TUNNEL_PROVIDER"])
+            if "TUNNEL_AUTOSTART" in settings_data:
+                _config_data["tunnel"]["autostart"] = _env_bool(settings_data["TUNNEL_AUTOSTART"])
+            if "TUNNEL_INSTALL_IF_MISSING" in settings_data:
+                _config_data["tunnel"]["install_if_missing"] = _env_bool(settings_data["TUNNEL_INSTALL_IF_MISSING"])
+            if "TUNNEL_SHARE_LOCALHOST" in settings_data:
+                _config_data["tunnel"]["share_localhost"] = str(settings_data["TUNNEL_SHARE_LOCALHOST"])
+            if "TUNNEL_HOSTNAME" in settings_data:
+                _config_data["tunnel"]["hostname"] = str(settings_data["TUNNEL_HOSTNAME"])
+            if "TUNNEL_TOKEN" in settings_data:
+                _config_data["tunnel"]["token"] = str(settings_data["TUNNEL_TOKEN"])
+            if "TUNNEL_PROTOCOL" in settings_data:
+                _config_data["tunnel"]["protocol"] = str(settings_data["TUNNEL_PROTOCOL"])
+            if "TUNNEL_MAX_RETRIES" in settings_data:
+                _config_data["tunnel"]["max_retries"] = int(settings_data["TUNNEL_MAX_RETRIES"])
+            if "TUNNEL_VALIDATION_TIMEOUT" in settings_data:
+                _config_data["tunnel"]["validation_timeout_seconds"] = float(settings_data["TUNNEL_VALIDATION_TIMEOUT"])
+            if "TUNNEL_QUIC_FAIL_THRESHOLD" in settings_data:
+                _config_data["tunnel"]["quic_fail_threshold"] = int(settings_data["TUNNEL_QUIC_FAIL_THRESHOLD"])
     except Exception as e:
         sys.stderr.write(f"Warning: Failed to load settings.json: {e}\n")
 
 # 4. Overlay environment variables (CAMZ_ prefix)
-def _env_bool(val: str) -> bool:
-    return val.lower() in ("1", "true", "yes", "on")
-
 _config_data["camera"]["type"] = os.getenv("CAMZ_CAMERA_TYPE", _config_data["camera"]["type"])
 _config_data["camera"]["source"] = os.getenv("CAMZ_CAMERA_SOURCE", _config_data["camera"]["source"])
 _config_data["camera"]["width"] = int(os.getenv("CAMZ_CAMERA_WIDTH", str(_config_data["camera"]["width"])))
@@ -216,6 +244,11 @@ _config_data["system"]["runtime_dir"] = os.getenv("CAMZ_RUNTIME_DIR", _config_da
 _config_data["system"]["log_level"] = os.getenv("CAMZ_LOG_LEVEL", _config_data["system"]["log_level"])
 _config_data["system"]["json_logs"] = _env_bool(os.getenv("CAMZ_JSON_LOGS", str(_config_data["system"]["json_logs"])))
 _config_data["system"]["port"] = int(os.getenv("CAMZ_PORT", str(_config_data["system"]["port"])))
+
+# Dynamically synchronize share_localhost with port if default
+_default_share_local = f"http://127.0.0.1:{_config_data['system']['port']}"
+if _config_data["tunnel"]["share_localhost"] == "http://127.0.0.1:8000" and _config_data["system"]["port"] != 8000:
+    _config_data["tunnel"]["share_localhost"] = _default_share_local
 
 _config_data["tunnel"]["enabled"] = _env_bool(os.getenv("CAMZ_TUNNEL_ENABLED", str(_config_data["tunnel"]["enabled"])))
 _config_data["tunnel"]["provider"] = os.getenv("CAMZ_TUNNEL_PROVIDER", _config_data["tunnel"]["provider"])

@@ -76,6 +76,11 @@ def action_info(args: argparse.Namespace) -> None:
     print(f"Runtime Path:         {config.RUNTIME_DIR}")
     print(f"Logs Path:            {config.LOG_FILE}")
     print(f"Port:                 {config.PORT}")
+    print("--------------------------------------------------")
+    print(f"Tunnel Enabled:       {config.TUNNEL_ENABLED}")
+    print(f"Tunnel Provider:      {config.TUNNEL_PROVIDER}")
+    print(f"Tunnel Share URL:     {config.TUNNEL_SHARE_LOCALHOST}")
+    print(f"Tunnel Protocol:      {config.TUNNEL_PROTOCOL or 'auto (quic)'}")
     print("==================================================")
 
 

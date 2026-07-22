@@ -295,6 +295,18 @@ class ConfigService(BaseService):
             if key == "log_level": self.config.LOG_LEVEL = value
             elif key == "json_logs": self.config.JSON_LOGS = value
             elif key == "port": self.config.PORT = value
+        elif section == "tunnel":
+            if key == "enabled": self.config.TUNNEL_ENABLED = bool(value)
+            elif key == "provider": self.config.TUNNEL_PROVIDER = str(value)
+            elif key == "autostart": self.config.TUNNEL_AUTOSTART = bool(value)
+            elif key == "install_if_missing": self.config.TUNNEL_INSTALL_IF_MISSING = bool(value)
+            elif key == "share_localhost": self.config.TUNNEL_SHARE_LOCALHOST = str(value)
+            elif key == "hostname": self.config.TUNNEL_HOSTNAME = str(value)
+            elif key == "token": self.config.TUNNEL_TOKEN = str(value)
+            elif key == "protocol": self.config.TUNNEL_PROTOCOL = str(value)
+            elif key == "max_retries": self.config.TUNNEL_MAX_RETRIES = int(value)
+            elif key == "validation_timeout_seconds": self.config.TUNNEL_VALIDATION_TIMEOUT = float(value)
+            elif key == "quic_fail_threshold": self.config.TUNNEL_QUIC_FAIL_THRESHOLD = int(value)
 
         # Persist to settings.json in runtime
         settings_data = {
@@ -306,6 +318,17 @@ class ConfigService(BaseService):
             "CAMZ_POSTBUFFER_SECONDS": self.config.CAMZ_POSTBUFFER_SECONDS,
             "CAMZ_STORAGE_LIMIT_GB": self.config.CAMZ_STORAGE_LIMIT_GB,
             "CAMZ_RETENTION_DAYS": self.config.CAMZ_RETENTION_DAYS,
+            "TUNNEL_ENABLED": self.config.TUNNEL_ENABLED,
+            "TUNNEL_PROVIDER": self.config.TUNNEL_PROVIDER,
+            "TUNNEL_AUTOSTART": self.config.TUNNEL_AUTOSTART,
+            "TUNNEL_INSTALL_IF_MISSING": self.config.TUNNEL_INSTALL_IF_MISSING,
+            "TUNNEL_SHARE_LOCALHOST": self.config.TUNNEL_SHARE_LOCALHOST,
+            "TUNNEL_HOSTNAME": self.config.TUNNEL_HOSTNAME,
+            "TUNNEL_TOKEN": self.config.TUNNEL_TOKEN,
+            "TUNNEL_PROTOCOL": self.config.TUNNEL_PROTOCOL,
+            "TUNNEL_MAX_RETRIES": self.config.TUNNEL_MAX_RETRIES,
+            "TUNNEL_VALIDATION_TIMEOUT": self.config.TUNNEL_VALIDATION_TIMEOUT,
+            "TUNNEL_QUIC_FAIL_THRESHOLD": self.config.TUNNEL_QUIC_FAIL_THRESHOLD,
         }
         
         try:
@@ -1258,9 +1281,10 @@ class TunnelService(BaseService):
     def start(self) -> None:
         super().start()
         self._shutdown_event.clear()
+        self.config.TUNNEL_ENABLED = True
 
-        if not self.config.TUNNEL_ENABLED:
-            logger.info("TunnelService: disabled in configuration — skipping startup.")
+        if self._monitor_thread and self._monitor_thread.is_alive():
+            logger.info("TunnelService: supervisor thread is already running.")
             return
 
         # Detect binary, install if missing
@@ -1285,6 +1309,8 @@ class TunnelService(BaseService):
         logger.info("Tunnel: supervisor thread started (protocol=%s).", self._protocol)
 
     def stop(self) -> None:
+        if self._sm.state == self._TunnelState.STOPPED:
+            return
         logger.info("Tunnel: initiating graceful shutdown...")
         self._sm.transition(self._TunnelState.STOPPING, "stop() called")
         self._shutdown_event.set()
@@ -1669,6 +1695,9 @@ class TunnelService(BaseService):
 
     def _run_validation(self, candidate_url: str) -> bool:
         """Run connectivity validation, publish events, return True on success."""
+        from urllib.parse import urlparse as _urlparse
+        _local_port = _urlparse(self.config.TUNNEL_SHARE_LOCALHOST).port or self.config.PORT
+        self._validator._local_port = _local_port
         logger.info("Tunnel: starting connectivity validation for %s...", candidate_url)
         self.manager.event_bus.publish(TunnelValidatingEvent(url=candidate_url))
 

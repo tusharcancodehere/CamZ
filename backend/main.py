@@ -406,6 +406,13 @@ def get_settings() -> dict:
         "CAMZ_POSTBUFFER_SECONDS": config.CAMZ_POSTBUFFER_SECONDS,
         "CAMZ_STORAGE_LIMIT_GB": config.CAMZ_STORAGE_LIMIT_GB,
         "CAMZ_RETENTION_DAYS": config.CAMZ_RETENTION_DAYS,
+        "TUNNEL_ENABLED": config.TUNNEL_ENABLED,
+        "TUNNEL_PROVIDER": config.TUNNEL_PROVIDER,
+        "TUNNEL_AUTOSTART": config.TUNNEL_AUTOSTART,
+        "TUNNEL_INSTALL_IF_MISSING": config.TUNNEL_INSTALL_IF_MISSING,
+        "TUNNEL_SHARE_LOCALHOST": config.TUNNEL_SHARE_LOCALHOST,
+        "TUNNEL_HOSTNAME": config.TUNNEL_HOSTNAME,
+        "TUNNEL_PROTOCOL": config.TUNNEL_PROTOCOL,
     }
 
 
@@ -413,7 +420,7 @@ def get_settings() -> dict:
 def update_settings(data: dict) -> dict:
     """Update settings in memory and persist them to settings.json."""
     config_service = service_manager.get(ConfigService)
-    
+
     # Apply dynamic updates
     mapping = {
         "STREAM_FPS": ("camera", "stream_fps"),
@@ -424,8 +431,16 @@ def update_settings(data: dict) -> dict:
         "CAMZ_POSTBUFFER_SECONDS": ("recording", "postbuffer_seconds"),
         "CAMZ_STORAGE_LIMIT_GB": ("recording", "storage_limit_gb"),
         "CAMZ_RETENTION_DAYS": ("recording", "retention_days"),
+        "TUNNEL_ENABLED": ("tunnel", "enabled"),
+        "TUNNEL_PROVIDER": ("tunnel", "provider"),
+        "TUNNEL_AUTOSTART": ("tunnel", "autostart"),
+        "TUNNEL_INSTALL_IF_MISSING": ("tunnel", "install_if_missing"),
+        "TUNNEL_SHARE_LOCALHOST": ("tunnel", "share_localhost"),
+        "TUNNEL_HOSTNAME": ("tunnel", "hostname"),
+        "TUNNEL_TOKEN": ("tunnel", "token"),
+        "TUNNEL_PROTOCOL": ("tunnel", "protocol"),
     }
-    
+
     for key, (section, conf_key) in mapping.items():
         if key in data:
             config_service.update_setting(section, conf_key, data[key])

@@ -494,24 +494,48 @@ class TestTunnelAPI(unittest.TestCase):
             "url": "",
             "protocol": "quic",
             "pid": None,
-            "latency_ms": None,
-            "restart_count": 0,
-            "uptime_seconds": 0,
             "arch": "",
             "version": "",
             "running": False,
             "crash_count": 0,
         }
-        # Make every service_manager.get() call return our mock svc
         mock_service_manager.get.return_value = mock_svc
 
         try:
             r = self.client.get("/health")
-            # Accept 200 or 503 — we just need it to not crash
             self.assertIn(r.status_code, [200, 503])
         except Exception:
-            # Health endpoint may depend on real services — skip if so
             pass
+
+    @patch("backend.main.service_manager")
+    def test_settings_endpoint_includes_tunnel_keys(self, mock_service_manager):
+        mock_cfg = MagicMock()
+        mock_service_manager.get.return_value = mock_cfg
+        r = self.client.get("/settings")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertIn("TUNNEL_ENABLED", data)
+        self.assertIn("TUNNEL_PROVIDER", data)
+
+
+class TestTunnelConfig(unittest.TestCase):
+
+    def setUp(self):
+        self.manager = ServiceManager()
+        self.manager.register(ConfigService)
+        self.config_svc = self.manager.get(ConfigService)
+
+    def test_update_setting_tunnel_enabled(self):
+        self.config_svc.update_setting("tunnel", "enabled", True)
+        self.assertTrue(self.config_svc.config.TUNNEL_ENABLED)
+
+    def test_update_setting_tunnel_protocol(self):
+        self.config_svc.update_setting("tunnel", "protocol", "http2")
+        self.assertEqual(self.config_svc.config.TUNNEL_PROTOCOL, "http2")
+
+    def test_update_setting_tunnel_max_retries(self):
+        self.config_svc.update_setting("tunnel", "max_retries", "10")
+        self.assertEqual(self.config_svc.config.TUNNEL_MAX_RETRIES, 10)
 
 
 if __name__ == "__main__":

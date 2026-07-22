@@ -34,12 +34,12 @@ class TunnelState(str, Enum):
 
 # Valid transitions: {from_state: set_of_allowed_to_states}
 _VALID_TRANSITIONS: dict[TunnelState, set[TunnelState]] = {
-    TunnelState.STOPPED: {TunnelState.INSTALLING, TunnelState.STARTING},
-    TunnelState.INSTALLING: {TunnelState.STARTING, TunnelState.FAILED, TunnelState.STOPPED},
-    TunnelState.STARTING: {TunnelState.CONNECTING, TunnelState.FAILED, TunnelState.STOPPING},
-    TunnelState.CONNECTING: {TunnelState.CONNECTED, TunnelState.FAILED, TunnelState.STOPPING},
-    TunnelState.CONNECTED: {TunnelState.DEGRADED, TunnelState.FAILED, TunnelState.STOPPING},
-    TunnelState.DEGRADED: {TunnelState.CONNECTED, TunnelState.FAILED, TunnelState.STOPPING},
+    TunnelState.STOPPED: {TunnelState.INSTALLING, TunnelState.STARTING, TunnelState.STOPPING},
+    TunnelState.INSTALLING: {TunnelState.STARTING, TunnelState.FAILED, TunnelState.STOPPING, TunnelState.STOPPED},
+    TunnelState.STARTING: {TunnelState.CONNECTING, TunnelState.FAILED, TunnelState.STOPPING, TunnelState.STOPPED},
+    TunnelState.CONNECTING: {TunnelState.CONNECTED, TunnelState.FAILED, TunnelState.STOPPING, TunnelState.STOPPED},
+    TunnelState.CONNECTED: {TunnelState.DEGRADED, TunnelState.FAILED, TunnelState.STOPPING, TunnelState.STOPPED},
+    TunnelState.DEGRADED: {TunnelState.CONNECTED, TunnelState.FAILED, TunnelState.STOPPING, TunnelState.STOPPED},
     TunnelState.FAILED: {TunnelState.STARTING, TunnelState.STOPPING, TunnelState.STOPPED},
     TunnelState.STOPPING: {TunnelState.STOPPED},
 }
