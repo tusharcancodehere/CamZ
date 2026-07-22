@@ -1662,47 +1662,44 @@ class TunnelService(BaseService):
 
                 self._sm.transition(self._TunnelState.CONNECTING, "process started")
 
-                # Read cloudflared output line by line
-                for raw_line in self.process.stdout:
-                    if self._shutdown_event.is_set():
-                        break
+                if self.process is not None and self.process.stdout is not None:
+                    for raw_line in self.process.stdout:
+                        if self._shutdown_event.is_set():
+                            break
 
-                    line = raw_line.strip()
-                    if line:
-                        with self._lock:
-                            self._log_history.append(line)
-                        self._interpret_log_line(line)
+                        line = raw_line.strip()
+                        if line:
+                            with self._lock:
+                                self._log_history.append(line)
+                            self._interpret_log_line(line)
 
-                    # Scrape Quick Tunnel URL from log output
-                    if not url_found and not self.config.TUNNEL_HOSTNAME and not self.config.TUNNEL_TOKEN:
-                        match = re.search(r'https://[a-zA-Z0-9\-]+\.trycloudflare\.com', line)
-                        if match:
-                            self._candidate_url = match.group(0)
+                        if not url_found and not self.config.TUNNEL_HOSTNAME and not self.config.TUNNEL_TOKEN:
+                            match = re.search(r'https://[a-zA-Z0-9\-]+\.trycloudflare\.com', line)
+                            if match:
+                                self._candidate_url = match.group(0)
+                                url_found = True
+                                logger.info("Tunnel: URL candidate scraped: %s", self._candidate_url)
+
+                        if not url_found and self.config.TUNNEL_HOSTNAME:
+                            self._candidate_url = f"https://{self.config.TUNNEL_HOSTNAME}"
                             url_found = True
-                            logger.info("Tunnel: URL candidate scraped: %s", self._candidate_url)
+                            logger.info("Tunnel: named tunnel URL: %s", self._candidate_url)
 
-                    # Named tunnel: URL is the configured hostname
-                    if not url_found and self.config.TUNNEL_HOSTNAME:
-                        self._candidate_url = f"https://{self.config.TUNNEL_HOSTNAME}"
-                        url_found = True
-                        logger.info("Tunnel: named tunnel URL: %s", self._candidate_url)
+                        if url_found and not connected and not self._shutdown_event.is_set():
+                            connected = self._run_validation(self._candidate_url)
+                            if connected:
+                                self._url = self._candidate_url
+                                self._start_time = time.monotonic()
+                                self._backoff_delay = 1.0
+                                self._quic_fail_count = 0
+                                self._sm.transition(self._TunnelState.CONNECTED, "connectivity validated")
+                                self.manager.event_bus.publish(TunnelConnectedEvent(url=self._url))
+                                logger.info(
+                                    "Tunnel: CONNECTED [url=%s, protocol=%s]",
+                                    self._url, self._protocol,
+                                )
 
-                    # Once URL is known, run connectivity validation
-                    if url_found and not connected and not self._shutdown_event.is_set():
-                        connected = self._run_validation(self._candidate_url)
-                        if connected:
-                            self._url = self._candidate_url
-                            self._start_time = time.monotonic()
-                            self._backoff_delay = 1.0
-                            self._quic_fail_count = 0  # reset on success
-                            self._sm.transition(self._TunnelState.CONNECTED, "connectivity validated")
-                            self.manager.event_bus.publish(TunnelConnectedEvent(url=self._url))
-                            logger.info(
-                                "Tunnel: CONNECTED [url=%s, protocol=%s]",
-                                self._url, self._protocol,
-                            )
-
-                exit_code = self.process.wait()
+                exit_code = self.process.wait() if self.process is not None else 1
                 logger.warning("Tunnel: cloudflared exited with code %d.", exit_code)
 
                 # Track QUIC failures for protocol fallback
