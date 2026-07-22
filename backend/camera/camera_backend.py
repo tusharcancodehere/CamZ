@@ -16,26 +16,26 @@ logger = logging.getLogger("camz.camera.backend")
 
 
 class CameraBackend(ABC):
-    """Abstract base class for all camera source plugins."""
+    """Abstract base class for camera backends."""
 
     @abstractmethod
     def read(self) -> np.ndarray:
-        """Capture a frame from the camera. Must return a BGR numpy array or raise StructuredError."""
+        """Capture a frame from the camera as a BGR numpy array."""
         pass
 
     @abstractmethod
     def release(self) -> None:
-        """Release any locked hardware/network resource."""
+        """Release camera hardware resources."""
         pass
 
     @abstractmethod
     def is_opened(self) -> bool:
-        """Verify if the backend is currently connected and active."""
+        """Return True if the backend is connected and active."""
         pass
 
 
 class Picamera2Backend(CameraBackend):
-    """Plugin for Raspberry Pi Camera Module 2/3 using libcamera/Picamera2."""
+    """Backend for Raspberry Pi Camera Modules using Picamera2."""
 
     def __init__(self, width: int = 0, height: int = 0) -> None:
         self.camera: Any = None
@@ -59,7 +59,7 @@ class Picamera2Backend(CameraBackend):
                 config["size"] = (width, height)
             self.camera.configure(config)
             self.camera.start()
-            logger.info("Initialized Picamera2 backend successfully at %dx%d", width, height)
+            logger.info("Picamera2 backend initialized at %dx%d", width, height)
         except Exception as exc:
             if self.camera:
                 try:
@@ -118,21 +118,18 @@ class Picamera2Backend(CameraBackend):
 
 
 class OpenCVBackend(CameraBackend):
-    """Plugin for generic local USB webcams using OpenCV V4L2/DirectShow."""
+    """Backend for USB webcams using OpenCV."""
 
     def __init__(self, index: int = 0, width: int = 0, height: int = 0) -> None:
         self.index = index
         self.capture: cv2.VideoCapture | None = cv2.VideoCapture(index)
 
-        # Detect busy state or failed device index mapping
         if not self.capture.isOpened():
             self.release()
 
-            # Check if camera path is busy (V4L2 specific check)
             dev_path = f"/dev/video{index}"
             is_busy = False
             if os.path.exists(dev_path):
-                # Try to test if locked
                 try:
                     fd = os.open(dev_path, os.O_RDWR | os.O_NONBLOCK)
                     os.close(fd)
@@ -156,7 +153,7 @@ class OpenCVBackend(CameraBackend):
             self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
             self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
 
-        logger.info("Initialized OpenCV backend successfully at index %d", index)
+        logger.info("OpenCV backend initialized at index %d", index)
 
     def read(self) -> np.ndarray:
         if not self.is_opened() or self.capture is None:
@@ -185,19 +182,19 @@ class OpenCVBackend(CameraBackend):
                 logger.warning("Error releasing OpenCV capture: %s", e)
             finally:
                 self.capture = None
-                logger.info("Released OpenCV video capture resources for index %d", self.index)
+                logger.info("Released OpenCV video capture at index %d", self.index)
 
     def is_opened(self) -> bool:
         return self.capture is not None and self.capture.isOpened()
 
 
 class RTSPBackend(CameraBackend):
-    """Plugin for IP network cameras using RTSP/RTMP endpoints."""
+    """Backend for IP cameras over RTSP/RTMP."""
 
     def __init__(self, rtsp_url: str, width: int = 0, height: int = 0) -> None:
         self.url = rtsp_url
 
-        # Performance tuning: configure FFMPEG parameters for low-latency network streams
+        # Configure FFMPEG options for low-latency network streams
         os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;udp|analyzeduration;100000|probesize;50000"
 
         self.capture: cv2.VideoCapture | None = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
@@ -216,7 +213,7 @@ class RTSPBackend(CameraBackend):
             self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
             self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
 
-        logger.info("Initialized RTSP network backend successfully")
+        logger.info("RTSP backend initialized")
 
     def read(self) -> np.ndarray:
         if not self.is_opened() or self.capture is None:
@@ -245,14 +242,14 @@ class RTSPBackend(CameraBackend):
                 logger.warning("Error releasing RTSP capture: %s", e)
             finally:
                 self.capture = None
-                logger.info("Released RTSP video capture resources")
+                logger.info("Released RTSP video capture")
 
     def is_opened(self) -> bool:
         return self.capture is not None and self.capture.isOpened()
 
 
 class FileBackend(CameraBackend):
-    """Plugin for reading frames looping from a video file. Extremely useful for virtual testing."""
+    """Backend reading looping frames from a video file."""
 
     def __init__(self, file_path: str, width: int = 0, height: int = 0) -> None:
         self.path = Path(file_path).resolve()
@@ -280,7 +277,7 @@ class FileBackend(CameraBackend):
             self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
             self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
 
-        logger.info("Initialized File-emulated camera successfully looping: %s", self.path.name)
+        logger.info("File camera backend initialized: %s", self.path.name)
 
     def read(self) -> np.ndarray:
         if not self.is_opened() or self.capture is None:

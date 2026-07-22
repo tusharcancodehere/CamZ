@@ -40,11 +40,12 @@ from backend.utils.logging_config import request_id_var, setup_logging, write_cr
 
 logger = logging.getLogger("camz.app")
 
-# Global Service Manager instance
 service_manager = ServiceManager()
 
-# Backward compatibility wrapper for existing tests
+
 class RecorderCompatWrapper:
+    """Compatibility adapter for tests referencing global recorder."""
+
     @property
     def is_recording(self) -> bool:
         try:
@@ -55,7 +56,6 @@ class RecorderCompatWrapper:
     def enqueue_frame(self, frame, motion_detected: bool) -> None:
         try:
             rec = service_manager.get(RecordingService)
-            # Forward directly to the RecordingService frame handler
             rec._on_frame_analyzed(
                 FrameAnalyzedEvent(frame=frame, mono_time=time.monotonic(), motion_detected=motion_detected)
             )
@@ -95,14 +95,10 @@ async def broadcast_ws_message(payload: dict) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Set up structured application logging
     setup_logging(log_file=LOG_FILE, level=LOG_LEVEL, json_logs=JSON_LOGS)
-    logger.info("Starting CAMZ application lifespan phases...")
+    logger.info("Starting CAMZ application services...")
 
-    # Hold the running event loop for WebSocket bridging
     loop_holder["main"] = asyncio.get_running_loop()
-
-    # Subscribe WebSocket bridge to all events
     service_manager.event_bus.subscribe("*", event_bus_websocket_bridge)
 
     try:
@@ -122,12 +118,9 @@ app = FastAPI(title="CAMZ", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
-# Structured Exception handlers for FastAPI HTTP requests
 @app.exception_handler(StructuredError)
 async def structured_error_handler(request: Request, exc: StructuredError) -> JSONResponse:
-    # Log complete traceback to file
     logger.error("HTTP request structured error: %s", exc.problem, exc_info=exc)
-    # Exception handlers MUST return a Response object, not a plain dict.
     return JSONResponse(
         status_code=500,
         content={
@@ -142,10 +135,8 @@ async def structured_error_handler(request: Request, exc: StructuredError) -> JS
     )
 
 
-# Request ID middleware
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
-    # Generate simple request ID
     req_id = request.headers.get("X-Request-ID", f"req_{int(time.time() * 1000)}")
     token = request_id_var.set(req_id)
     try:

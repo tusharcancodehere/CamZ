@@ -137,7 +137,7 @@ class TunnelProtocolFallbackEvent(Event):
 # --- Service Abstract Base ---
 
 class BaseService:
-    """Interface for all application microservices."""
+    """Base class for managed background services."""
 
     def __init__(self, manager: ServiceManager) -> None:
         self.manager = manager
@@ -155,10 +155,8 @@ class BaseService:
         return self._active
 
 
-# --- Central Service Manager ---
-
 class ServiceManager:
-    """Container for running systems executing Dependency Injection."""
+    """Central container managing service instantiation, ordering, and event bus lifecycle."""
 
     def __init__(self) -> None:
         self._services: Dict[Type[BaseService], BaseService] = {}
@@ -179,10 +177,9 @@ class ServiceManager:
             return cast(T, self._services[service_cls])
 
     def start_all(self) -> None:
-        """Start all services in explicit dependency order."""
+        """Start all services in dependency order."""
         self.state_machine.transition_to(AppState.INITIALIZING, "Starting services")
 
-        # Explicit registration of all core services
         self.register(ConfigService)
         self.register(NotificationService)
         self.register(StorageService)
@@ -193,7 +190,6 @@ class ServiceManager:
         self.register(HealthService)
         self.register(TunnelService)
 
-        # Injected initialization order
         services_in_order = [
             ConfigService,
             NotificationService,
@@ -217,7 +213,6 @@ class ServiceManager:
 
         self.state_machine.transition_to(AppState.READY, "All services active")
 
-        # Auto-start tunnel service if enabled and autostart is True
         from backend.config import config as cfg
         if cfg.TUNNEL_ENABLED and cfg.TUNNEL_AUTOSTART:
             try:
@@ -226,10 +221,9 @@ class ServiceManager:
                 logger.error("Failed to autostart TunnelService: %s", exc)
 
     def stop_all(self) -> None:
-        """Gracefully stop all active services."""
+        """Stop all running services in reverse dependency order."""
         self.state_machine.transition_to(AppState.STOPPING, "Shutting down services")
 
-        # Reverse order shutdown
         services_in_order = [
             TunnelService,
             HealthService,
@@ -387,21 +381,18 @@ class NotificationService(BaseService):
         self.manager.event_bus.subscribe(RecoveryFailed, self._on_recovery_failed)
 
     def send_alert(self, subject: str, message: str) -> None:
-        """Generic dispatch alerting all channels configured in environment."""
-        logger.info("ALERT: %s - %s", subject, message)
+        """Dispatch alerts across all configured channels."""
+        logger.info("Alert: %s - %s", subject, message)
 
-        # 1. Telegram dispatcher
         tg_token = os.getenv("CAMZ_TELEGRAM_BOT_TOKEN")
         tg_chat = os.getenv("CAMZ_TELEGRAM_CHAT_ID")
         if tg_token and tg_chat:
             self._send_telegram(tg_token, tg_chat, f"{subject}\n{message}")
 
-        # 2. Discord dispatcher
         discord_webhook = os.getenv("CAMZ_DISCORD_WEBHOOK_URL")
         if discord_webhook:
             self._send_discord(discord_webhook, f"**{subject}**\n{message}")
 
-        # 3. Email Dispatcher
         smtp_host = os.getenv("CAMZ_SMTP_HOST")
         smtp_port = os.getenv("CAMZ_SMTP_PORT")
         smtp_user = os.getenv("CAMZ_SMTP_USER")
@@ -410,7 +401,6 @@ class NotificationService(BaseService):
         if smtp_host and smtp_port and smtp_user and smtp_pass and to_email:
             self._send_email(smtp_host, int(smtp_port), smtp_user, smtp_pass, to_email, subject, message)
 
-        # 4. Webhook Dispatcher
         webhook_url = os.getenv("CAMZ_WEBHOOK_URL")
         if webhook_url:
             self._send_webhook(webhook_url, {"event": subject, "details": message})

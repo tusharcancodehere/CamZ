@@ -30,7 +30,6 @@ class ApplicationStateMachine:
         self._lock = threading.Lock()
         self._event_bus = event_bus
 
-        # Define valid state transitions to prevent erratic state jumps
         self._valid_transitions = {
             AppState.INITIALIZING: [AppState.VERIFYING, AppState.STARTING, AppState.FAILED],
             AppState.VERIFYING: [AppState.STARTING, AppState.FAILED],
@@ -48,13 +47,12 @@ class ApplicationStateMachine:
             return self._state
 
     def transition_to(self, new_state: AppState, reason: str = "") -> bool:
-        """Atomically transitions the application state if the transition is valid."""
+        """Atomically transition application state if allowed by valid transitions map."""
         with self._lock:
             old_state = self._state
             if new_state == old_state:
                 return True
 
-            # Allow force transition to FAILED or STOPPING from any state for emergencies
             is_valid = (
                 new_state in (AppState.FAILED, AppState.STOPPING)
                 or new_state in self._valid_transitions.get(old_state, [])
@@ -77,7 +75,6 @@ class ApplicationStateMachine:
             f"({reason})" if reason else "",
         )
 
-        # Notify event bus if connected
         if self._event_bus:
             from backend.utils.event_bus import Event
 

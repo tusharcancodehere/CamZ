@@ -40,10 +40,7 @@ class ValidationResult:
 
 
 class TunnelConnectivityValidator:
-    """
-    Validates that the CAMZ instance and the Cloudflare public URL
-    are actually reachable before declaring the tunnel CONNECTED.
-    """
+    """Validates local service health and public tunnel URL reachability."""
 
     CLOUDFLARE_CHECK_HOST = "cloudflare.com"
 
@@ -59,16 +56,8 @@ class TunnelConnectivityValidator:
         self._retry_interval = retry_interval
         self._max_attempts = max_attempts
 
-    # ------------------------------------------------------------------ #
-    # Public API                                                           #
-    # ------------------------------------------------------------------ #
-
     def validate(self, public_url: str) -> tuple[bool, str]:
-        """
-        Run all checks against the given public_url.
-        Returns (success: bool, reason: str).
-        The reason is empty on success, descriptive on failure.
-        """
+        """Run connectivity validation against public_url, returning (passed, reason)."""
         checks = [
             self._check_localhost,
             self._check_local_health_ready,
@@ -82,7 +71,6 @@ class TunnelConnectivityValidator:
                 logger.warning("Tunnel validation failed — %s", result)
                 return False, result.detail
 
-        # Final check: public URL reachability (with retries, it may take a moment)
         result = self._check_public_url_with_retries(public_url)
         if not result:
             logger.warning("Tunnel validation failed — %s", result)

@@ -211,7 +211,7 @@ if settings_json_path.is_file():
     except Exception as e:
         sys.stderr.write(f"Warning: Failed to load settings.json: {e}\n")
 
-# 4. Overlay environment variables (CAMZ_ prefix)
+# 4. Environment variable overrides (CAMZ_ prefix)
 _config_data["camera"]["type"] = os.getenv("CAMZ_CAMERA_TYPE", _config_data["camera"]["type"])
 _config_data["camera"]["source"] = os.getenv("CAMZ_CAMERA_SOURCE", _config_data["camera"]["source"])
 _config_data["camera"]["width"] = int(os.getenv("CAMZ_CAMERA_WIDTH", str(_config_data["camera"]["width"])))
@@ -250,7 +250,6 @@ _config_data["system"]["log_level"] = os.getenv("CAMZ_LOG_LEVEL", _config_data["
 _config_data["system"]["json_logs"] = _env_bool(os.getenv("CAMZ_JSON_LOGS", str(_config_data["system"]["json_logs"])))
 _config_data["system"]["port"] = int(os.getenv("CAMZ_PORT", str(_config_data["system"]["port"])))
 
-# Dynamically synchronize share_localhost with port if default
 _default_share_local = f"http://127.0.0.1:{_config_data['system']['port']}"
 if _config_data["tunnel"]["share_localhost"] == "http://127.0.0.1:8000" and _config_data["system"]["port"] != 8000:
     _config_data["tunnel"]["share_localhost"] = _default_share_local
@@ -269,7 +268,6 @@ _config_data["tunnel"]["max_retries"] = int(os.getenv("CAMZ_TUNNEL_MAX_RETRIES",
 _config_data["tunnel"]["validation_timeout_seconds"] = float(os.getenv("CAMZ_TUNNEL_VALIDATION_TIMEOUT", str(_config_data["tunnel"]["validation_timeout_seconds"])))
 _config_data["tunnel"]["quic_fail_threshold"] = int(os.getenv("CAMZ_TUNNEL_QUIC_FAIL_THRESHOLD", str(_config_data["tunnel"]["quic_fail_threshold"])))
 
-# Legacy environment variables support
 if "CAMZ_CAMERA_INDEX" in os.environ:
     _config_data["camera"]["source"] = os.environ["CAMZ_CAMERA_INDEX"]
 if "CAMZ_USE_PICAMERA2" in os.environ:

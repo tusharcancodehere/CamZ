@@ -14,7 +14,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-# ContextVar to track request ID through FastAPI requests
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 
 logger = logging.getLogger("camz.logging")
@@ -37,16 +36,13 @@ class JSONFormatter(logging.Formatter):
             "line": record.lineno,
         }
 
-        # Include request ID if tracking is active
         req_id = get_request_id()
         if req_id:
             log_data["request_id"] = req_id
 
-        # Include exceptions if present
         if record.exc_info:
             log_data["exception"] = "".join(traceback.format_exception(*record.exc_info))
 
-        # Include execution time and recovery actions if added dynamically
         for attr in ("execution_time_ms", "recovery_action", "startup_duration_seconds", "camera_init_time_ms"):
             if hasattr(record, attr):
                 log_data[attr] = getattr(record, attr)
@@ -55,15 +51,13 @@ class JSONFormatter(logging.Formatter):
 
 
 class ContextConsoleFormatter(logging.Formatter):
-    """Custom console formatter displaying context variables."""
+    """Console log formatter incorporating request context and metadata."""
 
     def format(self, record: logging.LogRecord) -> str:
-        # Save original message
         orig_msg = record.msg
         req_id = get_request_id()
         ctx_prefix = f" [{req_id}]" if req_id else ""
 
-        # Append dynamic metadata to message for visibility
         extra_info = []
         for attr in ("execution_time_ms", "recovery_action", "startup_duration_seconds", "camera_init_time_ms"):
             if hasattr(record, attr):
@@ -74,7 +68,7 @@ class ContextConsoleFormatter(logging.Formatter):
         record.msg = f"{orig_msg}{ctx_prefix}{extra_str}"
 
         result = super().format(record)
-        record.msg = orig_msg  # Restore
+        record.msg = orig_msg
         return result
 
 

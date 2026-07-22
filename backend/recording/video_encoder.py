@@ -12,7 +12,7 @@ logger = logging.getLogger("camz.video_encoder")
 
 
 class VideoEncoder:
-    """Wrapper around cv2.VideoWriter with codec fallback support."""
+    """Video writer wrapper providing multi-codec fallback support."""
 
     _cached_codec: str | None = None
 
@@ -30,13 +30,11 @@ class VideoEncoder:
         self.width = width
         self.height = height
 
-        # Determine codec candidates based on format
         if preferred_codec:
             codecs = [preferred_codec]
         elif VideoEncoder._cached_codec:
             codecs = [VideoEncoder._cached_codec]
         elif format_ext.lower() == "mp4":
-            # Prefer H264 (avc1/mp4v) with fallbacks
             codecs = ["avc1", "mp4v", "X264", "XVID"]
         else:
             codecs = ["XVID", "MJPG"]
@@ -53,7 +51,7 @@ class VideoEncoder:
                     self.writer = writer
                     self.codec_used = codec
                     VideoEncoder._cached_codec = codec
-                    logger.info("Initialized VideoWriter with codec: %s for %s", codec, self.path)
+                    logger.info("VideoWriter initialized with codec %s for %s", codec, self.path)
                     break
                 else:
                     writer.release()
@@ -61,11 +59,10 @@ class VideoEncoder:
                 logger.warning("Failed to initialize VideoWriter with codec %s: %s", codec, exc)
 
         if self.writer is None or not self.writer.isOpened():
-            # Absolute fallback
             fourcc = fourcc_fn(*"XVID")
             self.writer = cv2.VideoWriter(str(self.path), fourcc, self.fps, (self.width, self.height))
             self.codec_used = "XVID"
-            logger.info("Fallback to absolute codec XVID for %s", self.path)
+            logger.info("Fallback to XVID codec for %s", self.path)
 
     def write(self, frame: np.ndarray) -> float:
         """Write frame to encoder, returning encoding time in milliseconds."""

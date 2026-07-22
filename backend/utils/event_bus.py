@@ -50,10 +50,8 @@ class EventBus:
         listeners_to_notify = []
 
         with self._lock:
-            # Match specific event type
             if event_name in self._listeners:
                 listeners_to_notify.extend(self._listeners[event_name])
-            # Match wildcard subscriber
             if "*" in self._listeners:
                 listeners_to_notify.extend(self._listeners["*"])
 

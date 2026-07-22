@@ -12,7 +12,7 @@ import psutil
 
 @dataclass(frozen=True)
 class MemoryStats:
-    """Current process memory usage."""
+    """Process memory usage statistics."""
 
     used_mb: float
     total_mb: float
@@ -20,14 +20,13 @@ class MemoryStats:
 
 
 class FPSCounter:
-    """Sliding-window FPS calculator for the capture loop."""
+    """Sliding-window frame rate calculator."""
 
     def __init__(self, window_seconds: float = 1.0) -> None:
         self._window_seconds = window_seconds
         self._timestamps: deque[float] = deque()
 
     def tick(self) -> None:
-        """Record a frame capture event."""
         now = time.monotonic()
         self._timestamps.append(now)
         cutoff = now - self._window_seconds
@@ -36,7 +35,6 @@ class FPSCounter:
 
     @property
     def fps(self) -> float:
-        """Return the current frames-per-second estimate."""
         if not self._timestamps:
             return 0.0
         if len(self._timestamps) == 1:
@@ -47,29 +45,27 @@ class FPSCounter:
         return (len(self._timestamps) - 1) / elapsed
 
     def reset(self) -> None:
-        """Clear all recorded frame timestamps."""
         self._timestamps.clear()
 
 
 class UptimeTracker:
-    """Track application uptime from a fixed start time."""
+    """Application uptime tracker."""
 
     def __init__(self) -> None:
         self._started_at = time.monotonic()
 
     @property
     def seconds(self) -> float:
-        """Return uptime in seconds."""
         return time.monotonic() - self._started_at
 
 
 def read_cpu_percent() -> float:
-    """Return current process CPU usage as a percentage."""
+    """Return process CPU usage percentage."""
     return psutil.Process().cpu_percent(interval=None)
 
 
 def read_memory_stats() -> MemoryStats:
-    """Return memory usage for the current process and system total."""
+    """Return memory usage statistics for the current process and system."""
     process = psutil.Process()
     memory = process.memory_info()
     virtual = psutil.virtual_memory()
@@ -81,7 +77,7 @@ def read_memory_stats() -> MemoryStats:
 
 
 def read_temperature_c() -> float | None:
-    """Return SoC temperature in Celsius when available on Linux or other systems."""
+    """Return SoC temperature in Celsius when available."""
     thermal_path = Path("/sys/class/thermal/thermal_zone0/temp")
     if thermal_path.is_file():
         try:
@@ -90,14 +86,12 @@ def read_temperature_c() -> float | None:
         except (OSError, ValueError):
             pass
 
-    # Try psutil sensors
     if hasattr(psutil, "sensors_temperatures"):
         try:
             temps = psutil.sensors_temperatures()
             for key in ["cpu_thermal", "cpu-thermal", "coretemp", "soc_thermal"]:
                 if key in temps and temps[key]:
                     return temps[key][0].current
-            # Fallback to the first available temperature sensor
             for name, entries in temps.items():
                 if entries:
                     return entries[0].current
@@ -107,7 +101,7 @@ def read_temperature_c() -> float | None:
 
 
 class SlidingWindowAverage:
-    """Sliding-window average tracker for rolling metrics."""
+    """Sliding-window rolling average calculator."""
 
     def __init__(self, window_size: int = 30) -> None:
         from collections import deque

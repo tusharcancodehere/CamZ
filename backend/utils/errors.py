@@ -5,7 +5,7 @@ from typing import Any
 
 
 class StructuredError(Exception):
-    """Production-grade structured exception providing complete failure details."""
+    """Structured exception capturing component failure details, impact, and remedies."""
 
     def __init__(
         self,

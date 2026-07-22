@@ -46,7 +46,7 @@ _VALID_TRANSITIONS: dict[TunnelState, set[TunnelState]] = {
 
 
 class TunnelStateMachine:
-    """Thread-safe tunnel state machine with transition validation and logging."""
+    """Thread-safe state machine managing Cloudflare Tunnel lifecycle state transitions."""
 
     def __init__(self) -> None:
         self._state = TunnelState.STOPPED
@@ -62,14 +62,10 @@ class TunnelStateMachine:
         return self.state == TunnelState.CONNECTED
 
     def is_active(self) -> bool:
-        """True when tunnel is in any non-stopped/failed state."""
         return self.state not in (TunnelState.STOPPED, TunnelState.FAILED)
 
     def transition(self, new_state: TunnelState, reason: str = "") -> bool:
-        """
-        Attempt a state transition. Returns True if successful, False if invalid.
-        Invalid transitions are warned but never crash the service.
-        """
+        """Attempt a state transition, returning True if valid or False if rejected."""
         with self._lock:
             old_state = self._state
             allowed = _VALID_TRANSITIONS.get(old_state, set())
@@ -98,12 +94,12 @@ class TunnelStateMachine:
             return True
 
     def add_listener(self, callback) -> None:
-        """Register a callback(old: TunnelState, new: TunnelState, reason: str)."""
+        """Register a state change callback signature (old_state, new_state, reason)."""
         with self._lock:
             self._listeners.append(callback)
 
     def force(self, new_state: TunnelState, reason: str = "") -> None:
-        """Force a state without validation (emergency use only)."""
+        """Force a state transition overriding validity checks."""
         with self._lock:
             old_state = self._state
             self._state = new_state

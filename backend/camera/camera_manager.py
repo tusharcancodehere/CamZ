@@ -17,28 +17,25 @@ logger = logging.getLogger("camz.camera")
 
 
 class LatestBuffer:
-    """A generic thread-safe, single-item buffer with version and timestamp tracking."""
+    """Thread-safe single-item buffer with versioning."""
 
     def __init__(self) -> None:
         self._data: tuple[Any | None, int, float] = (None, 0, 0.0)
 
     def put(self, data: Any, timestamp: float) -> None:
-        """Atomically update the buffer."""
         _, version, _ = self._data
         self._data = (data, version + 1, timestamp)
 
     def get(self) -> tuple[Any | None, int, float]:
-        """Atomically read the latest data, its version, and timestamp."""
         return self._data
 
     def clear(self) -> None:
-        """Atomically clear the buffer."""
         _, version, _ = self._data
         self._data = (None, version + 1, 0.0)
 
 
 class CameraState(str, Enum):
-    """Operational state of the camera subsystem."""
+    """Camera operational state."""
 
     ACTIVE = "active"
     DISCONNECTED = "disconnected"
@@ -56,7 +53,7 @@ class CameraStatus:
 
 
 class CameraManager:
-    """Owns camera lifecycle, reads, and background recovery."""
+    """Manages camera connection lifecycle, frame buffering, and recovery."""
 
     def __init__(self, recovery_interval_seconds: float = CAMERA_RECOVERY_INTERVAL_SECONDS) -> None:
         self._lock = threading.Lock()
@@ -76,11 +73,9 @@ class CameraManager:
         self._encoder_thread: threading.Thread | None = None
         self._thread_local = threading.local()
 
-        # Motion detector and recorder references (set during start)
         self._motion_detector: Any | None = None
         self._recorder: Any | None = None
 
-        # Metrics
         self._detection_fps = FPSCounter()
         self._encoding_fps = FPSCounter()
         self._streaming_fps = FPSCounter()

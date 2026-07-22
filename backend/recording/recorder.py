@@ -71,7 +71,7 @@ class FrameQueue:
 
 
 class Recorder:
-    """Asynchronous video recorder that handles pre-buffering, post-buffering, and metadata."""
+    """Asynchronous video recorder handling pre/post buffering, clip encoding, and metadata generation."""
 
     def __init__(self) -> None:
         self._recording_mgr = RecordingManager(RECORDINGS_DIR)
@@ -84,10 +84,7 @@ class Recorder:
             max_workers=1, thread_name_prefix="camz-recorder-disk"
         )
 
-        # Shutdown event
         self._shutdown = threading.Event()
-
-        # Session state
         self._active_session = False
         self._start_abs_time = 0.0
         self._start_mono_time = 0.0
@@ -95,8 +92,6 @@ class Recorder:
         self._session_id: str | None = None
         self._video_path: Path | None = None
         self._encoder: VideoEncoder | None = None
-
-        # Manual recording control
         self._force_recording = False
         self._force_stop_session = False
 
