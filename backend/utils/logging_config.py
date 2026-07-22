@@ -1,14 +1,13 @@
 from __future__ import annotations
 
+import gzip
 import json
 import logging
 import logging.handlers
 import os
 import platform
-import gzip
 import shutil
 import sys
-import time
 import traceback
 from contextvars import ContextVar
 from datetime import datetime, timezone
@@ -63,17 +62,17 @@ class ContextConsoleFormatter(logging.Formatter):
         orig_msg = record.msg
         req_id = get_request_id()
         ctx_prefix = f" [{req_id}]" if req_id else ""
-        
+
         # Append dynamic metadata to message for visibility
         extra_info = []
         for attr in ("execution_time_ms", "recovery_action", "startup_duration_seconds", "camera_init_time_ms"):
             if hasattr(record, attr):
                 val = getattr(record, attr)
                 extra_info.append(f"{attr.replace('_', ' ') }={val}")
-        
+
         extra_str = f" ({', '.join(extra_info)})" if extra_info else ""
         record.msg = f"{orig_msg}{ctx_prefix}{extra_str}"
-        
+
         result = super().format(record)
         record.msg = orig_msg  # Restore
         return result
@@ -102,7 +101,7 @@ def setup_logging(
 ) -> logging.Logger:
     """Setup structured application-wide logging with log rotation and gzip compression."""
     root_logger = logging.getLogger("camz")
-    
+
     # Set logging levels on all subloggers
     numeric_level = getattr(logging, level.upper(), logging.INFO)
     root_logger.setLevel(numeric_level)
@@ -116,6 +115,7 @@ def setup_logging(
 
     # Create console stream handler
     console_handler = logging.StreamHandler(sys.stdout)
+    console_formatter: logging.Formatter
     if json_logs:
         console_formatter = JSONFormatter()
     else:
@@ -135,6 +135,7 @@ def setup_logging(
     file_handler.namer = _gzip_namer
     file_handler.rotator = _gzip_rotator
 
+    file_formatter: logging.Formatter
     if json_logs:
         file_formatter = JSONFormatter()
     else:
@@ -153,7 +154,7 @@ def write_crash_report(exc: Exception, component: str = "app", crash_dir: Path |
     if crash_dir is None:
         # Default to a subfolder next to logs
         crash_dir = Path("/home/tushar/Projects/CAMZ/runtime/logs/crash")
-    
+
     try:
         crash_dir.mkdir(parents=True, exist_ok=True)
     except Exception:

@@ -14,19 +14,19 @@ from typing import Any
 import numpy as np
 
 from backend.config.config import (
-    RECORDINGS_DIR,
-    RECORDING_FPS,
-    CAMZ_RECORDING_QUEUE_SIZE,
-    CAMZ_RECORDING_FORMAT,
-    CAMZ_PREBUFFER_SECONDS,
     CAMZ_POSTBUFFER_SECONDS,
-    CAMZ_STORAGE_LIMIT_GB,
+    CAMZ_PREBUFFER_SECONDS,
+    CAMZ_RECORDING_FORMAT,
+    CAMZ_RECORDING_QUEUE_SIZE,
     CAMZ_RETENTION_DAYS,
+    CAMZ_STORAGE_LIMIT_GB,
+    RECORDING_FPS,
+    RECORDINGS_DIR,
 )
 from backend.metrics.metrics import FPSCounter
 from backend.recording.recording_manager import RecordingManager
-from backend.storage.storage_manager import StorageManager
 from backend.recording.video_encoder import VideoEncoder
+from backend.storage.storage_manager import StorageManager
 
 logger = logging.getLogger("camz.recorder")
 
@@ -36,7 +36,7 @@ class FrameQueue:
 
     def __init__(self, maxsize: int) -> None:
         self.maxsize = maxsize
-        self._queue = collections.deque()
+        self._queue: collections.deque[Any] = collections.deque()
         self._lock = threading.Lock()
         self._cond = threading.Condition(self._lock)
         self.dropped_frames = 0
@@ -183,7 +183,7 @@ class Recorder:
     def _worker_loop(self) -> None:
         """Dedicated queue processor loop."""
         prebuffer_capacity = max(1, int(CAMZ_PREBUFFER_SECONDS * RECORDING_FPS))
-        pre_buffer = collections.deque(maxlen=prebuffer_capacity)
+        pre_buffer: collections.deque[Any] = collections.deque(maxlen=prebuffer_capacity)
 
         while not self._shutdown.is_set() or self._queue.qsize() > 0:
             try:

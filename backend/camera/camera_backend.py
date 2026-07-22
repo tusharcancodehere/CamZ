@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
-import time
 import os
+import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -122,12 +122,12 @@ class OpenCVBackend(CameraBackend):
 
     def __init__(self, index: int = 0, width: int = 0, height: int = 0) -> None:
         self.index = index
-        self.capture = cv2.VideoCapture(index)
+        self.capture: cv2.VideoCapture | None = cv2.VideoCapture(index)
 
         # Detect busy state or failed device index mapping
         if not self.capture.isOpened():
             self.release()
-            
+
             # Check if camera path is busy (V4L2 specific check)
             dev_path = f"/dev/video{index}"
             is_busy = False
@@ -159,7 +159,7 @@ class OpenCVBackend(CameraBackend):
         logger.info("Initialized OpenCV backend successfully at index %d", index)
 
     def read(self) -> np.ndarray:
-        if not self.is_opened():
+        if not self.is_opened() or self.capture is None:
             raise StructuredError(
                 component="camera_opencv",
                 problem="Read failed: Camera capture is closed",
@@ -196,11 +196,11 @@ class RTSPBackend(CameraBackend):
 
     def __init__(self, rtsp_url: str, width: int = 0, height: int = 0) -> None:
         self.url = rtsp_url
-        
+
         # Performance tuning: configure FFMPEG parameters for low-latency network streams
         os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;udp|analyzeduration;100000|probesize;50000"
-        
-        self.capture = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
+
+        self.capture: cv2.VideoCapture | None = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
         if not self.capture.isOpened():
             self.release()
             raise StructuredError(
@@ -219,7 +219,7 @@ class RTSPBackend(CameraBackend):
         logger.info("Initialized RTSP network backend successfully")
 
     def read(self) -> np.ndarray:
-        if not self.is_opened():
+        if not self.is_opened() or self.capture is None:
             raise StructuredError(
                 component="camera_rtsp",
                 problem="Read failed: RTSP stream is closed",
@@ -265,7 +265,7 @@ class FileBackend(CameraBackend):
                 suggested_fix="Provide a valid, accessible video file path",
             )
 
-        self.capture = cv2.VideoCapture(str(self.path))
+        self.capture: cv2.VideoCapture | None = cv2.VideoCapture(str(self.path))
         if not self.capture.isOpened():
             self.release()
             raise StructuredError(
@@ -283,7 +283,7 @@ class FileBackend(CameraBackend):
         logger.info("Initialized File-emulated camera successfully looping: %s", self.path.name)
 
     def read(self) -> np.ndarray:
-        if not self.is_opened():
+        if not self.is_opened() or self.capture is None:
             raise StructuredError(
                 component="camera_file",
                 problem="Read failed: video file reader is closed",
@@ -323,18 +323,18 @@ def benchmark_camera(backend: CameraBackend, duration_seconds: float = 3.0) -> f
     """Run frame acquisition benchmarking on a backend. Returns actual FPS achieved."""
     if not backend.is_opened():
         return 0.0
-    
+
     frames = 0
     start = time.monotonic()
     deadline = start + duration_seconds
-    
+
     try:
         while time.monotonic() < deadline:
             backend.read()
             frames += 1
     except Exception as exc:
         logger.warning("Benchmarking interrupted by frame grab exception: %s", exc)
-        
+
     elapsed = time.monotonic() - start
     fps = frames / elapsed if elapsed > 0 else 0.0
     logger.info("Camera benchmark completed: %d frames in %.2fs (%.2f FPS)", frames, elapsed, fps)

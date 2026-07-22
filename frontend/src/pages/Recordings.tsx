@@ -9,6 +9,10 @@ import {
   Info,
   X,
   Search,
+  CheckSquare,
+  Square,
+  AlertTriangle,
+  Loader2,
 } from 'lucide-react'
 
 export const Recordings: React.FC = () => {
@@ -17,23 +21,20 @@ export const Recordings: React.FC = () => {
   const [sortBy, setSortBy] = useState<'date' | 'duration' | 'size'>('date')
   const [selectedRec, setSelectedRec] = useState<any | null>(null)
 
+  // Multi-select state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null)
+
+  // Deletion modals & loading states
+  const [isDeletingBulk, setIsDeletingBulk] = useState(false)
+  const [isDeletingAll, setIsDeletingAll] = useState(false)
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false)
+  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false)
+  const [deleteAllInput, setDeleteAllInput] = useState('')
+
   useEffect(() => {
     fetchRecordings()
   }, [])
-
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (!confirm('Are you sure you want to delete this recording?')) return
-    try {
-      const res = await fetch(`/recordings/${id}`, { method: 'DELETE' })
-      if (res.ok) {
-        addNotification('Recording deleted successfully', 'success')
-        fetchRecordings()
-      }
-    } catch {
-      addNotification('Failed to delete recording', 'error')
-    }
-  }
 
   const getFilteredRecordings = () => {
     let result = [...recordings]
@@ -41,7 +42,7 @@ export const Recordings: React.FC = () => {
       result = result.filter(
         (r) =>
           r.id.toLowerCase().includes(search.toLowerCase()) ||
-          r.codec.toLowerCase().includes(search.toLowerCase())
+          (r.codec && r.codec.toLowerCase().includes(search.toLowerCase()))
       )
     }
     if (sortBy === 'date') {
@@ -57,23 +58,131 @@ export const Recordings: React.FC = () => {
   const filtered = getFilteredRecordings()
 
   const formatSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes'
+    if (!bytes || bytes === 0) return '0 Bytes'
     const k = 1024
     const sizes = ['Bytes', 'KB', 'MB', 'GB']
     const i = Math.floor(Math.log(bytes) / Math.log(k))
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
   }
 
+  // Handle single item selection / shift-click selection
+  const handleToggleSelect = (id: string, index: number, e: React.MouseEvent) => {
+    e.stopPropagation()
+    const newSet = new Set(selectedIds)
+
+    if (e.shiftKey && lastSelectedIndex !== null) {
+      const start = Math.min(lastSelectedIndex, index)
+      const end = Math.max(lastSelectedIndex, index)
+      const range = filtered.slice(start, end + 1)
+      range.forEach((item) => newSet.add(item.id))
+    } else {
+      if (newSet.has(id)) {
+        newSet.delete(id)
+      } else {
+        newSet.add(id)
+      }
+      setLastSelectedIndex(index)
+    }
+    setSelectedIds(newSet)
+  }
+
+  const handleSelectAllToggle = () => {
+    if (selectedIds.size === filtered.length && filtered.length > 0) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(filtered.map((r) => r.id)))
+    }
+  }
+
+  // Single delete action
+  const handleDeleteSingle = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!confirm('Are you sure you want to delete this recording?')) return
+    try {
+      const res = await fetch(`/recordings/${id}`, { method: 'DELETE' })
+      if (res.ok) {
+        addNotification('Recording deleted successfully', 'success')
+        setSelectedIds((prev) => {
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
+        fetchRecordings()
+      } else {
+        addNotification('Failed to delete recording', 'error')
+      }
+    } catch {
+      addNotification('Failed to delete recording', 'error')
+    }
+  }
+
+  // Bulk delete execution
+  const handleExecuteBulkDelete = async () => {
+    if (selectedIds.size === 0) return
+    setIsDeletingBulk(true)
+    try {
+      const res = await fetch('/recordings/bulk', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(selectedIds) }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        addNotification(
+          `Deleted ${data.deleted_count} recording(s)${
+            data.failed_count > 0 ? ` (${data.failed_count} failed)` : ''
+          }`,
+          data.failed_count > 0 ? 'warning' : 'success'
+        )
+        setSelectedIds(new Set())
+        fetchRecordings()
+      } else {
+        addNotification('Failed to complete bulk deletion', 'error')
+      }
+    } catch {
+      addNotification('Error connecting to server during bulk delete', 'error')
+    } finally {
+      setIsDeletingBulk(false)
+      setShowBulkConfirm(false)
+    }
+  }
+
+  // Delete All execution
+  const handleExecuteDeleteAll = async () => {
+    setIsDeletingAll(true)
+    try {
+      const res = await fetch('/recordings/all', { method: 'DELETE' })
+      if (res.ok) {
+        const data = await res.json()
+        addNotification(
+          `Deleted all ${data.deleted_count} recording(s) (Freed ${formatSize(data.freed_bytes)})`,
+          'success'
+        )
+        setSelectedIds(new Set())
+        fetchRecordings()
+      } else {
+        addNotification('Failed to delete all recordings', 'error')
+      }
+    } catch {
+      addNotification('Error connecting to server during delete all', 'error')
+    } finally {
+      setIsDeletingAll(false)
+      setShowDeleteAllConfirm(false)
+      setDeleteAllInput('')
+    }
+  }
+
+  const totalBytes = filtered.reduce((acc, r) => acc + (r.file_size_bytes || 0), 0)
+
   return (
     <div className="space-y-6">
-      {/* Header & Controls */}
+      {/* Header & Main Actions */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-100">Media Recordings</h1>
-          <p className="text-sm text-slate-500">View, play, and download recorded video sessions.</p>
+          <p className="text-sm text-slate-500">View, manage, play, and download recorded video sessions.</p>
         </div>
 
-        {/* Filter controls */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative w-full sm:w-auto">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
@@ -112,69 +221,144 @@ export const Recordings: React.FC = () => {
               Size
             </button>
           </div>
+
+          {recordings.length > 0 && (
+            <button
+              onClick={() => setShowDeleteAllConfirm(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-semibold transition-all"
+              title="Delete all stored recordings"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete All
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Multi-Select Action Toolbar */}
+      {filtered.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-2xl border border-slate-900 bg-slate-950/60 backdrop-blur-sm">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleSelectAllToggle}
+              className="flex items-center gap-2 text-xs text-slate-300 hover:text-slate-100 transition-colors font-medium"
+            >
+              {selectedIds.size === filtered.length && filtered.length > 0 ? (
+                <CheckSquare className="h-4 w-4 text-emerald-400" />
+              ) : (
+                <Square className="h-4 w-4 text-slate-600" />
+              )}
+              {selectedIds.size === filtered.length ? 'Deselect All' : 'Select All'}
+            </button>
+
+            {selectedIds.size > 0 && (
+              <span className="text-xs font-semibold text-sky-400 px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/20">
+                {selectedIds.size} of {filtered.length} selected
+              </span>
+            )}
+          </div>
+
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-850 text-slate-400 text-xs font-medium transition-colors"
+              >
+                Clear Selection
+              </button>
+              <button
+                onClick={() => setShowBulkConfirm(true)}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-slate-950 font-semibold text-xs transition-colors shadow-lg shadow-rose-600/10"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete Selected ({selectedIds.size})
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Media Grid */}
       {filtered.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6">
-          {filtered.map((rec) => (
-            <div
-              key={rec.id}
-              onClick={() => setSelectedRec(rec)}
-              className="group relative rounded-2xl border border-slate-900 bg-slate-950/40 hover:bg-slate-900/40 hover:border-slate-800 transition-all cursor-pointer overflow-hidden shadow-xl"
-            >
-              {/* Thumbnail Container */}
-              <div className="relative aspect-video bg-slate-950 overflow-hidden border-b border-slate-900">
-                <img
-                  src={`/recordings/${rec.id}/thumbnail`}
-                  alt={`Thumbnail for ${rec.id}`}
-                  className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200"
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none'
-                  }}
-                />
-                <div className="absolute inset-0 bg-slate-950/20 group-hover:bg-slate-950/0 transition-colors flex items-center justify-center">
-                  <div className="h-10 w-10 rounded-full bg-slate-950/80 border border-slate-900 flex items-center justify-center text-slate-200 opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100 transition-all shadow-lg">
-                    <Play className="h-5 w-5 fill-slate-200" />
+          {filtered.map((rec, idx) => {
+            const isSelected = selectedIds.has(rec.id)
+            return (
+              <div
+                key={rec.id}
+                onClick={() => setSelectedRec(rec)}
+                className={`group relative rounded-2xl border transition-all cursor-pointer overflow-hidden shadow-xl ${
+                  isSelected
+                    ? 'border-emerald-500/60 bg-emerald-950/20'
+                    : 'border-slate-900 bg-slate-950/40 hover:bg-slate-900/40 hover:border-slate-800'
+                }`}
+              >
+                {/* Selection Checkbox overlay */}
+                <div
+                  onClick={(e) => handleToggleSelect(rec.id, idx, e)}
+                  className="absolute top-2 left-2 z-20 p-1.5 rounded-lg bg-slate-950/80 border border-slate-900 hover:bg-slate-900 text-slate-400 transition-all"
+                  title="Select (Shift-click for multi-select range)"
+                >
+                  {isSelected ? (
+                    <CheckSquare className="h-4 w-4 text-emerald-400 fill-emerald-400/20" />
+                  ) : (
+                    <Square className="h-4 w-4 text-slate-500 group-hover:text-slate-300" />
+                  )}
+                </div>
+
+                {/* Thumbnail Container */}
+                <div className="relative aspect-video bg-slate-950 overflow-hidden border-b border-slate-900">
+                  <img
+                    src={`/recordings/${rec.id}/thumbnail`}
+                    alt={`Thumbnail for ${rec.id}`}
+                    className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none'
+                    }}
+                  />
+                  <div className="absolute inset-0 bg-slate-950/20 group-hover:bg-slate-950/0 transition-colors flex items-center justify-center">
+                    <div className="h-10 w-10 rounded-full bg-slate-950/80 border border-slate-900 flex items-center justify-center text-slate-200 opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100 transition-all shadow-lg">
+                      <Play className="h-5 w-5 fill-slate-200" />
+                    </div>
+                  </div>
+
+                  <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded bg-slate-950/80 text-[10px] text-slate-300 font-mono">
+                    {rec.duration_seconds}s
                   </div>
                 </div>
 
-                <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded bg-slate-950/80 text-[10px] text-slate-300 font-mono">
-                  {rec.duration_seconds}s
+                {/* Summary details */}
+                <div className="p-4 flex flex-col gap-2">
+                  <div className="flex items-center justify-between text-[10px] text-slate-500 font-semibold uppercase tracking-wider">
+                    <span className="flex items-center gap-1">
+                      <Calendar className="h-3.5 w-3.5" />
+                      {new Date(rec.start_time).toLocaleDateString()}
+                    </span>
+                    <span>{rec.resolution}</span>
+                  </div>
+
+                  <h3 className="text-xs font-bold text-slate-300 line-clamp-1 truncate" title={rec.id}>
+                    {rec.id}
+                  </h3>
+
+                  <div className="flex items-center justify-between border-t border-slate-900/50 pt-2 text-[10px] text-slate-500">
+                    <span className="flex items-center gap-1">
+                      <HardDrive className="h-3.5 w-3.5" />
+                      {formatSize(rec.file_size_bytes)}
+                    </span>
+
+                    <button
+                      onClick={(e) => handleDeleteSingle(rec.id, e)}
+                      className="p-1 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-slate-900 transition-colors"
+                      title="Delete recording"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
-
-              {/* Summary details */}
-              <div className="p-4 flex flex-col gap-2">
-                <div className="flex items-center justify-between text-[10px] text-slate-500 font-semibold uppercase tracking-wider">
-                  <span className="flex items-center gap-1">
-                    <Calendar className="h-3.5 w-3.5" />
-                    {new Date(rec.start_time).toLocaleDateString()}
-                  </span>
-                  <span>{rec.resolution}</span>
-                </div>
-
-                <h3 className="text-xs font-bold text-slate-300 line-clamp-1 truncate" title={rec.id}>
-                  {rec.id}
-                </h3>
-
-                <div className="flex items-center justify-between border-t border-slate-900/50 pt-2 text-[10px] text-slate-500">
-                  <span className="flex items-center gap-1">
-                    <HardDrive className="h-3.5 w-3.5" />
-                    {formatSize(rec.file_size_bytes)}
-                  </span>
-
-                  <button
-                    onClick={(e) => handleDelete(rec.id, e)}
-                    className="p-1 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-slate-900 transition-colors"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       ) : (
         <div className="py-24 rounded-2xl border border-slate-900 border-dashed text-center text-slate-500 text-xs flex flex-col items-center justify-center gap-3">
@@ -183,15 +367,110 @@ export const Recordings: React.FC = () => {
         </div>
       )}
 
+      {/* Bulk Delete Confirmation Modal */}
+      {showBulkConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={() => !isDeletingBulk && setShowBulkConfirm(false)} />
+          <div className="relative w-full max-w-md rounded-2xl border border-slate-900 bg-slate-950 p-6 shadow-2xl z-10 space-y-4">
+            <div className="flex items-center gap-3 text-rose-400 border-b border-slate-900 pb-3">
+              <AlertTriangle className="h-5 w-5" />
+              <h3 className="text-base font-bold text-slate-100">Confirm Bulk Deletion</h3>
+            </div>
+            <p className="text-xs text-slate-400">
+              Are you sure you want to permanently delete <strong className="text-slate-200">{selectedIds.size} selected recording(s)</strong>? Associated video files, metadata, and thumbnails will be removed from disk.
+            </p>
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                disabled={isDeletingBulk}
+                onClick={() => setShowBulkConfirm(false)}
+                className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-850 text-slate-300 text-xs font-semibold transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={isDeletingBulk}
+                onClick={handleExecuteBulkDelete}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-slate-950 font-bold text-xs transition-colors shadow-lg shadow-rose-600/20"
+              >
+                {isDeletingBulk ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-4 w-4" />
+                    Delete {selectedIds.size} Recordings
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete All Confirmation Modal */}
+      {showDeleteAllConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={() => !isDeletingAll && setShowDeleteAllConfirm(false)} />
+          <div className="relative w-full max-w-md rounded-2xl border border-rose-900/40 bg-slate-950 p-6 shadow-2xl z-10 space-y-4">
+            <div className="flex items-center gap-3 text-rose-500 border-b border-slate-900 pb-3">
+              <AlertTriangle className="h-5 w-5 animate-pulse" />
+              <h3 className="text-base font-bold text-slate-100">Delete All Recordings</h3>
+            </div>
+            <div className="text-xs text-slate-400 space-y-2">
+              <p>
+                This action will permanently delete <strong className="text-rose-400">{recordings.length} recording(s)</strong> and free approximately <strong className="text-emerald-400">{formatSize(totalBytes)}</strong> of storage space.
+              </p>
+              <p className="text-slate-500">Type <strong className="text-slate-200 select-all font-mono">DELETE</strong> below to confirm:</p>
+            </div>
+
+            <input
+              type="text"
+              placeholder="Type DELETE to confirm"
+              value={deleteAllInput}
+              onChange={(e) => setDeleteAllInput(e.target.value)}
+              className="w-full h-10 rounded-xl bg-slate-900 border border-slate-800 px-3 text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-rose-500"
+            />
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                disabled={isDeletingAll}
+                onClick={() => {
+                  setShowDeleteAllConfirm(false)
+                  setDeleteAllInput('')
+                }}
+                className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-850 text-slate-300 text-xs font-semibold transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={isDeletingAll || deleteAllInput.trim() !== 'DELETE'}
+                onClick={handleExecuteDeleteAll}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:bg-slate-800 disabled:text-slate-600 text-slate-950 font-bold text-xs transition-colors shadow-lg shadow-rose-600/20"
+              >
+                {isDeletingAll ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Deleting All...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-4 w-4" />
+                    Permanently Delete All
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Playback Modal */}
       {selectedRec && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          {/* Backdrop */}
           <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={() => setSelectedRec(null)} />
-
-          {/* Modal Container */}
           <div className="relative w-full max-w-4xl rounded-2xl border border-slate-900 bg-slate-950 overflow-hidden shadow-2xl z-10 flex flex-col lg:flex-row">
-            {/* Close Button */}
             <button
               onClick={() => setSelectedRec(null)}
               className="absolute right-4 top-4 z-20 p-1.5 rounded-full bg-slate-950/80 border border-slate-900 text-slate-400 hover:text-slate-200 transition-colors"
@@ -199,7 +478,6 @@ export const Recordings: React.FC = () => {
               <X className="h-4 w-4" />
             </button>
 
-            {/* Video Player */}
             <div className="flex-1 bg-black aspect-video flex items-center justify-center">
               <video
                 src={`/recordings/${selectedRec.id}`}
@@ -209,7 +487,6 @@ export const Recordings: React.FC = () => {
               />
             </div>
 
-            {/* Metadata Drawer */}
             <div className="w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-slate-900 p-6 flex flex-col gap-6 text-xs text-slate-400 bg-slate-950/50">
               <div className="flex items-center gap-2 border-b border-slate-900 pb-3">
                 <Info className="h-4 w-4 text-slate-500" />

@@ -69,7 +69,7 @@ class ApplicationStateMachine:
                 return False
 
             self._state = new_state
-            
+
         logger.info(
             "State transition: %s -> %s %s",
             old_state.value,
@@ -80,7 +80,7 @@ class ApplicationStateMachine:
         # Notify event bus if connected
         if self._event_bus:
             from backend.utils.event_bus import Event
-            
+
             class StateChangedEvent(Event):
                 def __init__(self, old_state: AppState, new_state: AppState, reason: str) -> None:
                     super().__init__(data={"old_state": old_state.value, "new_state": new_state.value, "reason": reason})

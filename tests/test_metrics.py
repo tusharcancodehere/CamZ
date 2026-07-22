@@ -3,9 +3,6 @@ from __future__ import annotations
 import time
 from unittest.mock import patch
 
-import numpy as np
-import pytest
-
 from backend.metrics.metrics import FPSCounter, UptimeTracker, read_temperature_c
 
 

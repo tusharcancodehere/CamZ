@@ -6,7 +6,12 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from backend.camera.camera_manager import CameraManager, CameraState
-from backend.metrics.metrics import UptimeTracker, read_cpu_percent, read_memory_stats, read_temperature_c
+from backend.metrics.metrics import (
+    UptimeTracker,
+    read_cpu_percent,
+    read_memory_stats,
+    read_temperature_c,
+)
 from backend.recording.recorder import Recorder
 
 

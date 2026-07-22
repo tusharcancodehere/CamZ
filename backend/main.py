@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import json
 import logging
 import time
-import json
 from contextlib import asynccontextmanager
 
 import cv2
@@ -14,29 +14,29 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from backend.config.config import (
-    SNAPSHOTS_DIR,
-    STATIC_DIR,
-    TEMPLATES_DIR,
-    STREAM_FPS,
     BASE_DIR,
+    JSON_LOGS,
     LOG_FILE,
     LOG_LEVEL,
-    JSON_LOGS,
+    SNAPSHOTS_DIR,
+    STATIC_DIR,
+    STREAM_FPS,
+    TEMPLATES_DIR,
 )
 from backend.services import (
-    ServiceManager,
-    ConfigService,
     CameraService,
-    RecordingService,
-    StreamService,
-    StorageService,
-    HealthService,
-    TunnelService,
+    ConfigService,
     FrameAnalyzedEvent,
+    HealthService,
+    RecordingService,
+    ServiceManager,
+    StorageService,
+    StreamService,
+    TunnelService,
 )
 from backend.utils.errors import StructuredError
-from backend.utils.logging_config import setup_logging, write_crash_report, request_id_var
 from backend.utils.event_bus import Event
+from backend.utils.logging_config import request_id_var, setup_logging, write_crash_report
 
 logger = logging.getLogger("camz.app")
 
@@ -167,7 +167,7 @@ def snapshot() -> FileResponse:
     camera_service = service_manager.get(CameraService)
     if camera_service.camera is None or not camera_service.camera.is_opened():
         raise HTTPException(status_code=503, detail="Camera backend is offline")
-    
+
     try:
         frame = camera_service.camera.read()
     except Exception as exc:
@@ -319,18 +319,34 @@ def get_recording_thumbnail(id: str) -> FileResponse:
     raise HTTPException(status_code=404, detail="Thumbnail not found")
 
 
+@app.delete("/recordings/bulk")
+def delete_recordings_bulk(payload: dict) -> dict:
+    """Bulk delete multiple recordings by ID list."""
+    ids = payload.get("ids", [])
+    if not isinstance(ids, list):
+        raise HTTPException(status_code=400, detail="Invalid request payload: 'ids' must be a list of strings")
+    for rec_id in ids:
+        if not isinstance(rec_id, str):
+            raise HTTPException(status_code=400, detail="Invalid ID in bulk delete payload")
+        _validate_safe_id(rec_id)
+
+    storage = service_manager.get(StorageService)
+    return storage.delete_recordings_bulk(ids)
+
+
+@app.delete("/recordings/all")
+def delete_all_recordings() -> dict:
+    """Delete all recorded sessions from storage."""
+    storage = service_manager.get(StorageService)
+    return storage.delete_all_recordings()
+
+
 @app.delete("/recordings/{id}")
 def delete_recording(id: str) -> dict:
     """Delete a recording and its associated files."""
     _validate_safe_id(id)
     storage = service_manager.get(StorageService)
-    # Search for json file
-    found = False
-    for path in storage.directory.glob(f"**/{id}.json"):
-        storage._delete_session_files(path)
-        found = True
-        break
-    if not found:
+    if not storage.delete_recording_by_id(id):
         raise HTTPException(status_code=404, detail="Recording not found")
     return {"status": "deleted"}
 
@@ -365,7 +381,7 @@ def stop_manual_recording() -> dict:
 def start_tunnel() -> dict:
     """Start the Cloudflare Tunnel service dynamically."""
     tunnel_service = service_manager.get(TunnelService)
-    tunnel_service.config.TUNNEL_ENABLED = True
+    setattr(tunnel_service.config, "TUNNEL_ENABLED", True)
     tunnel_service.start()
     return {"status": "started", "tunnel": tunnel_service.get_status()}
 

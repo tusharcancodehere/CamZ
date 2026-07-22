@@ -28,7 +28,7 @@ class StructuredError(Exception):
         self.doc_reference = doc_reference
         self.exit_code = exit_code
         self.original_exception = original_exception
-        
+
         # Capture formatted traceback if an exception is active or provided
         if original_exception:
             self.traceback_str = "".join(

@@ -1,16 +1,18 @@
 import os
 import shutil
-import time
-from pathlib import Path
-import numpy as np
-import psutil
 
 # Add project root to python path to import packages correctly
 import sys
+import time
+from pathlib import Path
+
+import numpy as np
+import psutil
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from backend.recording.recorder import Recorder
 from backend.config import config
+from backend.recording.recorder import Recorder
 
 
 def get_process_metrics():
@@ -43,7 +45,7 @@ def main():
     # Initialize recorder
     print("Starting Recorder subsystem...")
     recorder = Recorder()
-    
+
     # Let the thread warm up
     time.sleep(0.5)
 
@@ -60,10 +62,10 @@ def main():
 
     print("\n--- Phase 2: Active Recording Session (Motion Detected) ---")
     write_start_time = time.monotonic()
-    
+
     # Trigger motion
     recorder.enqueue_frame(dummy_frame, motion_detected=True)
-    
+
     # Feed frames with motion
     for _ in range(total_frames):
         recorder.enqueue_frame(dummy_frame, motion_detected=True)
@@ -113,7 +115,7 @@ def main():
     print("Feeding frames at high frequency to trigger queue drops...")
     for _ in range(500):
         recorder.enqueue_frame(dummy_frame, motion_detected=True)
-        
+
     print(f"Post-Stress Queue Size: {recorder.queue_size}, Dropped Frames: {recorder.dropped_frames}")
 
     # Shutdown recorder

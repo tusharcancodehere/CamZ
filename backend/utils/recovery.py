@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Callable
+from typing import Callable
 
-from dataclasses import dataclass
 from backend.utils.event_bus import Event, EventBus
-from backend.utils.state_machine import AppState, ApplicationStateMachine
+from backend.utils.state_machine import ApplicationStateMachine, AppState
 
 logger = logging.getLogger("camz.recovery")
 
@@ -62,7 +61,7 @@ class ProgressiveRecoveryEngine:
             return False
 
         self._last_recovery_time = now
-        
+
         # Guard: If retries are exhausted, transition to FAILED
         if self._retry_count >= self._max_retries:
             logger.error("Maximum recovery retries (%d) exhausted for component %s.", self._max_retries, component)
@@ -71,7 +70,7 @@ class ProgressiveRecoveryEngine:
 
         self._state_machine.transition_to(AppState.RECOVERING, f"Recovering component {component}")
         logger.info("Executing recovery stage %d for component: %s", self._current_stage, component)
-        
+
         self._event_bus.publish(RecoveryStarted(stage=self._current_stage, component=component))
 
         success = False
@@ -85,23 +84,23 @@ class ProgressiveRecoveryEngine:
         if success:
             logger.info("Recovery stage %d succeeded for component %s.", self._current_stage, component)
             self._event_bus.publish(RecoverySucceeded(stage=self._current_stage, component=component))
-            
+
             # Reset counters
             self._retry_count = 0
             self._current_stage = 1
-            
+
             # Transition application state back to READY
             self._state_machine.transition_to(AppState.READY, f"Recovery succeeded for {component}")
             return True
         else:
             logger.warning("Recovery stage %d failed for component %s.", self._current_stage, component)
             self._event_bus.publish(RecoveryFailed(stage=self._current_stage, component=component, error="Trigger returned false"))
-            
+
             # Increment retries and advance progressive stage
             self._retry_count += 1
             if self._current_stage < 4:
                 self._current_stage += 1
             else:
                 self._current_stage = 1  # Reset stages but accumulate retries
-                
+
             return False

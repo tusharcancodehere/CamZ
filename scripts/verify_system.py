@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-import sys
-import os
+import importlib
 import platform
 import shutil
-import importlib
 import socket
+import sys
 from pathlib import Path
+
 
 # Colored terminal output helpers
 def print_pass(msg):
@@ -56,7 +56,7 @@ def check_dependencies():
         except ImportError:
             missing.append(pip_name)
             all_ok = False
-            
+
     if all_ok:
         print_pass("All Python package dependencies are installed.")
     else:
@@ -116,17 +116,17 @@ def check_runtime_dir():
     base_dir = Path(__file__).resolve().parent.parent
     runtime_dir = base_dir / "runtime"
     subdirs = ["recordings", "snapshots", "logs", "cache", "temp", "exports"]
-    
+
     try:
         runtime_dir.mkdir(parents=True, exist_ok=True)
         # Test write permission
         test_file = runtime_dir / ".permission_test"
         test_file.write_text("test")
         test_file.unlink()
-        
+
         for sd in subdirs:
             (runtime_dir / sd).mkdir(parents=True, exist_ok=True)
-            
+
         print_pass("Runtime directories are configured with correct read/write permissions.")
         return True
     except Exception as e:
@@ -174,7 +174,7 @@ def check_cameras():
         available.append("Picamera2 (RPi Camera Module)")
     except Exception:
         pass
-        
+
     # 2. Check OpenCV Indexes
     try:
         import cv2
@@ -185,7 +185,7 @@ def check_cameras():
                 cap.release()
     except Exception:
         pass
-        
+
     if available:
         print_pass(f"Available camera devices detected: {', '.join(available)}")
         return True
@@ -200,7 +200,7 @@ def main():
     print(f"OS Platform:      {platform.system()} ({platform.release()})")
     print(f"CPU Architecture: {platform.machine()}")
     print("--------------------------------------------------")
-    
+
     steps = [
         check_python(),
         check_dependencies(),
@@ -213,7 +213,7 @@ def main():
         check_port(),
         check_cameras()
     ]
-    
+
     print("--------------------------------------------------")
     if all(steps):
         print_pass("Verification SUCCESS: All systems ready.")

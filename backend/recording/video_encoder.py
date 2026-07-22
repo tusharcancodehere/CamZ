@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
+from typing import Any
+
 import cv2
 import numpy as np
 
@@ -42,9 +44,10 @@ class VideoEncoder:
         self.writer = None
         self.codec_used = None
 
+        fourcc_fn: Any = getattr(cv2, "VideoWriter_fourcc", getattr(cv2.VideoWriter, "fourcc", None))
         for codec in codecs:
             try:
-                fourcc = cv2.VideoWriter_fourcc(*codec)
+                fourcc = fourcc_fn(*codec)
                 writer = cv2.VideoWriter(str(self.path), fourcc, self.fps, (self.width, self.height))
                 if writer.isOpened():
                     self.writer = writer
@@ -59,7 +62,7 @@ class VideoEncoder:
 
         if self.writer is None or not self.writer.isOpened():
             # Absolute fallback
-            fourcc = cv2.VideoWriter_fourcc(*"XVID")
+            fourcc = fourcc_fn(*"XVID")
             self.writer = cv2.VideoWriter(str(self.path), fourcc, self.fps, (self.width, self.height))
             self.codec_used = "XVID"
             logger.info("Fallback to absolute codec XVID for %s", self.path)

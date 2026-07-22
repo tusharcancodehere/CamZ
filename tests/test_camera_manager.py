@@ -105,6 +105,7 @@ def test_latest_frame_buffer_basic() -> None:
 
 def test_latest_frame_buffer_concurrent() -> None:
     import threading
+
     from backend.camera.camera_manager import LatestBuffer
     buf = LatestBuffer()
     errors: list[Exception] = []

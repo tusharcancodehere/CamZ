@@ -10,9 +10,8 @@ from typing import Any
 import numpy as np
 
 from backend.camera.camera import CameraError, CameraSource, create_camera
-from backend.config.config import CAMERA_RECOVERY_INTERVAL_SECONDS, STREAM_FPS, CAMZ_JPEG_QUALITY
+from backend.config.config import CAMERA_RECOVERY_INTERVAL_SECONDS, CAMZ_JPEG_QUALITY, STREAM_FPS
 from backend.metrics.metrics import FPSCounter, SlidingWindowAverage
-
 
 logger = logging.getLogger("camz.camera")
 

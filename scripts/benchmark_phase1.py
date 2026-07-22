@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tests.test_camera_manager import FakeCamera
+from tests.test_camera_manager import FakeCamera  # noqa: E402
 
 
 def _measure_current_process(duration: float) -> dict[str, float]:

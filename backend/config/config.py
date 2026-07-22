@@ -4,6 +4,8 @@ import os
 import platform
 import sys
 from pathlib import Path
+from typing import Any
+
 import psutil
 
 # Base Directories
@@ -16,7 +18,7 @@ def detect_hardware_profile() -> tuple[str, str]:
     system = platform.system()
     is_pi = False
     pi_model = ""
-    
+
     if system == "Linux":
         try:
             model_path = Path("/sys/firmware/devicetree/base/model")
@@ -26,7 +28,7 @@ def detect_hardware_profile() -> tuple[str, str]:
                     is_pi = True
         except Exception:
             pass
-            
+
     try:
         total_ram_gb = psutil.virtual_memory().total / (1024 * 1024 * 1024)
     except Exception:
@@ -83,7 +85,7 @@ else:  # pi_5, desktop, laptop
     default_min_area = 1200
 
 # Base Configuration dictionary
-_config_data = {
+_config_data: dict[str, dict[str, Any]] = {
     "camera": {
         "type": default_camera_type,
         "source": "0",
@@ -130,15 +132,19 @@ _config_data = {
 }
 
 # 2. Overlay config.toml from project root if it exists
+# 2. Overlay config.toml from project root if it exists
 toml_path = BASE_DIR / "config.toml"
 if toml_path.is_file():
     try:
+        toml_loader = None
         try:
             import tomllib
+            toml_loader = tomllib.load
         except ImportError:
-            import tomli as tomllib
+            import tomli
+            toml_loader = tomli.load
         with open(toml_path, "rb") as f:
-            toml_data = tomllib.load(f)
+            toml_data = toml_loader(f)
             for section in _config_data:
                 if section in toml_data:
                     _config_data[section].update(toml_data[section])
@@ -161,8 +167,8 @@ settings_json_path = _runtime_dir / "settings.json"
 if settings_json_path.is_file():
     try:
         import json
-        with open(settings_json_path, "r") as f:
-            settings_data = json.load(f)
+        with open(settings_json_path, "r", encoding="utf-8") as sf:
+            settings_data = json.load(sf)
             # Map settings.json legacy keys to section keys
             if "STREAM_FPS" in settings_data:
                 _config_data["camera"]["stream_fps"] = float(settings_data["STREAM_FPS"])
@@ -274,56 +280,57 @@ if "CAMZ_USE_PICAMERA2" in os.environ:
         _config_data["camera"]["type"] = "opencv"
 
 # Expose Module-level configuration constants for backward compatibility
-RUNTIME_DIR_STR = _config_data["system"]["runtime_dir"]
-RUNTIME_DIR = Path(RUNTIME_DIR_STR).resolve()
+RUNTIME_DIR_STR: str = _config_data["system"]["runtime_dir"]
+RUNTIME_DIR: Path = Path(RUNTIME_DIR_STR).resolve()
 if not RUNTIME_DIR.is_absolute():
     RUNTIME_DIR = (BASE_DIR / RUNTIME_DIR_STR).resolve()
 
-from backend.storage.storage_manager import RuntimeStorageManager
+from backend.storage.storage_manager import RuntimeStorageManager  # noqa: E402
+
 storage_manager = RuntimeStorageManager(RUNTIME_DIR)
 
-RECORDINGS_DIR = storage_manager.recordings_dir
-SNAPSHOTS_DIR = storage_manager.snapshots_dir
-LOGS_DIR = storage_manager.logs_dir
-LOG_FILE = storage_manager.get_log_file()
-SETTINGS_FILE = storage_manager.get_settings_file()
+RECORDINGS_DIR: Path = storage_manager.recordings_dir
+SNAPSHOTS_DIR: Path = storage_manager.snapshots_dir
+LOGS_DIR: Path = storage_manager.logs_dir
+LOG_FILE: Path = storage_manager.get_log_file()
+SETTINGS_FILE: Path = storage_manager.get_settings_file()
 
-CAMERA_TYPE = _config_data["camera"]["type"]
-CAMERA_SOURCE = _config_data["camera"]["source"]
-CAMERA_WIDTH = _config_data["camera"]["width"]
-CAMERA_HEIGHT = _config_data["camera"]["height"]
-STREAM_FPS = _config_data["camera"]["stream_fps"]
-CAMZ_JPEG_QUALITY = _config_data["camera"]["jpeg_quality"]
-CAMERA_RECOVERY_INTERVAL_SECONDS = _config_data["camera"]["recovery_interval_seconds"]
+CAMERA_TYPE: str = _config_data["camera"]["type"]
+CAMERA_SOURCE: str = _config_data["camera"]["source"]
+CAMERA_WIDTH: int = _config_data["camera"]["width"]
+CAMERA_HEIGHT: int = _config_data["camera"]["height"]
+STREAM_FPS: float = _config_data["camera"]["stream_fps"]
+CAMZ_JPEG_QUALITY: int = _config_data["camera"]["jpeg_quality"]
+CAMERA_RECOVERY_INTERVAL_SECONDS: float = _config_data["camera"]["recovery_interval_seconds"]
 
-RECORDING_FPS = _config_data["recording"]["recording_fps"]
-CAMZ_PREBUFFER_SECONDS = _config_data["recording"]["prebuffer_seconds"]
-CAMZ_POSTBUFFER_SECONDS = _config_data["recording"]["postbuffer_seconds"]
-CAMZ_STORAGE_LIMIT_GB = _config_data["recording"]["storage_limit_gb"]
-CAMZ_RETENTION_DAYS = _config_data["recording"]["retention_days"]
-CAMZ_RECORDING_QUEUE_SIZE = _config_data["recording"]["queue_size"]
-CAMZ_RECORDING_FORMAT = _config_data["recording"]["format"]
+RECORDING_FPS: float = _config_data["recording"]["recording_fps"]
+CAMZ_PREBUFFER_SECONDS: int = _config_data["recording"]["prebuffer_seconds"]
+CAMZ_POSTBUFFER_SECONDS: int = _config_data["recording"]["postbuffer_seconds"]
+CAMZ_STORAGE_LIMIT_GB: float = _config_data["recording"]["storage_limit_gb"]
+CAMZ_RETENTION_DAYS: int = _config_data["recording"]["retention_days"]
+CAMZ_RECORDING_QUEUE_SIZE: int = _config_data["recording"]["queue_size"]
+CAMZ_RECORDING_FORMAT: str = _config_data["recording"]["format"]
 
-MOTION_THRESHOLD = _config_data["motion"]["threshold"]
-MOTION_MIN_AREA = _config_data["motion"]["min_area"]
+MOTION_THRESHOLD: int = _config_data["motion"]["threshold"]
+MOTION_MIN_AREA: int = _config_data["motion"]["min_area"]
 
-LOG_LEVEL = _config_data["system"]["log_level"]
-JSON_LOGS = _config_data["system"]["json_logs"]
-PORT = _config_data["system"]["port"]
+LOG_LEVEL: str = _config_data["system"]["log_level"]
+JSON_LOGS: bool = _config_data["system"]["json_logs"]
+PORT: int = _config_data["system"]["port"]
 
-TUNNEL_ENABLED = _config_data["tunnel"]["enabled"]
-TUNNEL_PROVIDER = _config_data["tunnel"]["provider"]
-TUNNEL_AUTOSTART = _config_data["tunnel"]["autostart"]
-TUNNEL_INSTALL_IF_MISSING = _config_data["tunnel"]["install_if_missing"]
-TUNNEL_SHARE_LOCALHOST = _config_data["tunnel"]["share_localhost"]
-TUNNEL_HOSTNAME = _config_data["tunnel"]["hostname"]
-TUNNEL_QUICK_TUNNEL = _config_data["tunnel"]["quick_tunnel"]
-TUNNEL_LOG_LEVEL = _config_data["tunnel"]["log_level"]
-TUNNEL_TOKEN = _config_data["tunnel"]["token"]
-TUNNEL_PROTOCOL = _config_data["tunnel"]["protocol"]
-TUNNEL_MAX_RETRIES = _config_data["tunnel"]["max_retries"]
-TUNNEL_VALIDATION_TIMEOUT = _config_data["tunnel"]["validation_timeout_seconds"]
-TUNNEL_QUIC_FAIL_THRESHOLD = _config_data["tunnel"]["quic_fail_threshold"]
+TUNNEL_ENABLED: bool = _config_data["tunnel"]["enabled"]
+TUNNEL_PROVIDER: str = _config_data["tunnel"]["provider"]
+TUNNEL_AUTOSTART: bool = _config_data["tunnel"]["autostart"]
+TUNNEL_INSTALL_IF_MISSING: bool = _config_data["tunnel"]["install_if_missing"]
+TUNNEL_SHARE_LOCALHOST: str = _config_data["tunnel"]["share_localhost"]
+TUNNEL_HOSTNAME: str = _config_data["tunnel"]["hostname"]
+TUNNEL_QUICK_TUNNEL: bool = _config_data["tunnel"]["quick_tunnel"]
+TUNNEL_LOG_LEVEL: str = _config_data["tunnel"]["log_level"]
+TUNNEL_TOKEN: str = _config_data["tunnel"]["token"]
+TUNNEL_PROTOCOL: str = _config_data["tunnel"]["protocol"]
+TUNNEL_MAX_RETRIES: int = _config_data["tunnel"]["max_retries"]
+TUNNEL_VALIDATION_TIMEOUT: float = _config_data["tunnel"]["validation_timeout_seconds"]
+TUNNEL_QUIC_FAIL_THRESHOLD: int = _config_data["tunnel"]["quic_fail_threshold"]
 
 # Resolve index representation for backward compatibility with older OpenCV codes
 try:

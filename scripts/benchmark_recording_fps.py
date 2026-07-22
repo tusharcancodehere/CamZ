@@ -1,16 +1,18 @@
 import os
 import shutil
-import time
-from pathlib import Path
-import numpy as np
-import psutil
 
 # Add project root to python path
 import sys
+import time
+from pathlib import Path
+
+import numpy as np
+import psutil
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from backend.recording.recorder import Recorder
 from backend.config import config
+from backend.recording.recorder import Recorder
 
 
 def get_process_metrics():
@@ -87,16 +89,16 @@ def run_benchmark_for_fps(fps_target):
 def main():
     print("# Sustained Recording Performance Benchmark")
     print("Running benchmarks at 10, 15, and 20 FPS...")
-    
+
     fps_list = [10, 15, 20]
     results = []
-    
+
     for fps in fps_list:
         print(f"Benchmarking at {fps} FPS...")
         res = run_benchmark_for_fps(fps)
         results.append(res)
         time.sleep(1.0)
-        
+
     print("\n## Sustained Performance Results Table")
     print("| Target FPS | Actual FPS | Dropped Frames | Disk Throughput (KB/s) | Avg Encode Time | Server CPU % | Server RAM (MB) |")
     print("|------------|------------|----------------|------------------------|-----------------|--------------|-----------------|")

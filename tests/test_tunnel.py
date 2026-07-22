@@ -5,8 +5,6 @@ Comprehensive test suite for the production-grade Cloudflare Tunnel implementati
 Covers: state machine, connectivity validator, TunnelService lifecycle,
 protocol fallback, arch detection, health endpoint schema, and API routes.
 """
-import http.client
-import socket
 import threading
 import time
 import unittest
@@ -14,24 +12,17 @@ from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
-from backend.config import config
+from backend.main import app
 from backend.services import (
-    ServiceManager,
     ConfigService,
+    ServiceManager,
+    TunnelConnectedEvent,
+    TunnelProtocolFallbackEvent,
     TunnelService,
     TunnelStartedEvent,
-    TunnelConnectedEvent,
-    TunnelDisconnectedEvent,
-    TunnelRestartedEvent,
-    TunnelStateChangedEvent,
-    TunnelValidatingEvent,
-    TunnelValidationFailedEvent,
-    TunnelProtocolFallbackEvent,
 )
 from backend.tunnel_state import TunnelState, TunnelStateMachine
 from backend.tunnel_validator import TunnelConnectivityValidator
-from backend.main import app
-
 
 # ─────────────────────────────────────────────
 # State Machine Tests
@@ -319,7 +310,6 @@ class TestTunnelService(unittest.TestCase):
         """If validation fails, URL is not exposed and state stays non-CONNECTED."""
         mock_which.return_value = "/usr/bin/cloudflared"
 
-        stop_event = threading.Event()
         lines = ["https://camz-fail-test.trycloudflare.com"]
 
         mock_process = MagicMock()

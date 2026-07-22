@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 import numpy as np
 
@@ -15,10 +15,9 @@ from backend.camera.camera_backend import (
 from backend.config.config import (
     CAMERA_HEIGHT,
     CAMERA_INDEX,
-    CAMERA_TYPE,
     CAMERA_SOURCE,
+    CAMERA_TYPE,
     CAMERA_WIDTH,
-    USE_PICAMERA2,
 )
 from backend.utils.errors import StructuredError
 
@@ -55,10 +54,10 @@ def create_camera() -> CameraBackend:
     """Camera factory creating the configured camera backend as a single source of truth."""
     from backend.config.config import profile
     is_rpi = profile.startswith("pi_")
-    
+
     # Determine the target backend type
     target_type = CAMERA_TYPE.lower() if CAMERA_TYPE else "auto"
-    
+
     # If auto, decide based on hardware platform
     if target_type == "auto":
         if is_rpi:
@@ -120,7 +119,7 @@ def create_camera() -> CameraBackend:
             idx = int(CAMERA_SOURCE)
         except ValueError:
             idx = 0
-            
+
         try:
             return OpenCVBackend(index=idx, width=CAMERA_WIDTH, height=CAMERA_HEIGHT)
         except Exception as exc:

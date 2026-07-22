@@ -105,7 +105,7 @@ def test_app_lifespan_finalizes_active_recording(create_camera: MagicMock, video
     with TestClient(app) as client:
         client.get("/health")
         recorder.enqueue_frame(np.zeros((48, 64, 3), dtype=np.uint8), motion_detected=True)
-        
+
         # Wait for the async worker to start recording
         deadline = time.monotonic() + 1.0
         while time.monotonic() < deadline:
@@ -114,7 +114,7 @@ def test_app_lifespan_finalizes_active_recording(create_camera: MagicMock, video
             time.sleep(0.01)
         else:
             pytest.fail("Recorder did not start recording asynchronously")
-            
+
         assert recorder.is_recording is True
 
     assert recorder.is_recording is False
@@ -285,8 +285,9 @@ def test_shutdown_while_streaming(create_camera: MagicMock) -> None:
 
 
 def test_path_traversal_is_blocked() -> None:
-    from backend.main import _validate_safe_id
     from fastapi import HTTPException
+
+    from backend.main import _validate_safe_id
 
     # Valid parameters should not raise anything
     _validate_safe_id("2026-07-21_120000_000")

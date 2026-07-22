@@ -5,24 +5,26 @@ import datetime
 import logging
 import os
 import queue
+import shutil
 import smtplib
 import threading
 import time
 from email.mime.text import MIMEText
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Type, TypeVar, cast
+from typing import Any, Dict, Type, TypeVar, cast
 
 import cv2
 import numpy as np
 import psutil
 
-from backend.camera.camera_backend import CameraBackend, FileBackend, OpenCVBackend, Picamera2Backend, RTSPBackend
 from backend.camera.camera import create_camera
+from backend.camera.camera_backend import (
+    CameraBackend,
+)
 from backend.recording.video_encoder import VideoEncoder
-from backend.utils.errors import StructuredError
 from backend.utils.event_bus import Event, EventBus
-from backend.utils.state_machine import AppState, ApplicationStateMachine
 from backend.utils.recovery import ProgressiveRecoveryEngine, RecoveryFailed
+from backend.utils.state_machine import ApplicationStateMachine, AppState
 
 logger = logging.getLogger("camz.services")
 
@@ -179,7 +181,7 @@ class ServiceManager:
     def start_all(self) -> None:
         """Start all services in explicit dependency order."""
         self.state_machine.transition_to(AppState.INITIALIZING, "Starting services")
-        
+
         # Explicit registration of all core services
         self.register(ConfigService)
         self.register(NotificationService)
@@ -226,7 +228,7 @@ class ServiceManager:
     def stop_all(self) -> None:
         """Gracefully stop all active services."""
         self.state_machine.transition_to(AppState.STOPPING, "Shutting down services")
-        
+
         # Reverse order shutdown
         services_in_order = [
             TunnelService,
@@ -273,40 +275,70 @@ class ConfigService(BaseService):
 
         # Update in-memory values
         if section == "camera":
-            if key == "stream_fps": self.config.STREAM_FPS = value
-            elif key == "width": self.config.CAMERA_WIDTH = value
-            elif key == "height": self.config.CAMERA_HEIGHT = value
-            elif key == "jpeg_quality": self.config.CAMZ_JPEG_QUALITY = value
-            elif key == "recovery_interval_seconds": self.config.CAMERA_RECOVERY_INTERVAL_SECONDS = value
-            elif key == "type": self.config.CAMERA_TYPE = value
-            elif key == "source": self.config.CAMERA_SOURCE = value
+            if key == "stream_fps":
+                self.config.STREAM_FPS = value
+            elif key == "width":
+                self.config.CAMERA_WIDTH = value
+            elif key == "height":
+                self.config.CAMERA_HEIGHT = value
+            elif key == "jpeg_quality":
+                self.config.CAMZ_JPEG_QUALITY = value
+            elif key == "recovery_interval_seconds":
+                self.config.CAMERA_RECOVERY_INTERVAL_SECONDS = value
+            elif key == "type":
+                self.config.CAMERA_TYPE = value
+            elif key == "source":
+                self.config.CAMERA_SOURCE = value
         elif section == "recording":
-            if key == "recording_fps": self.config.RECORDING_FPS = value
-            elif key == "prebuffer_seconds": self.config.CAMZ_PREBUFFER_SECONDS = value
-            elif key == "postbuffer_seconds": self.config.CAMZ_POSTBUFFER_SECONDS = value
-            elif key == "storage_limit_gb": self.config.CAMZ_STORAGE_LIMIT_GB = value
-            elif key == "retention_days": self.config.CAMZ_RETENTION_DAYS = value
-            elif key == "queue_size": self.config.CAMZ_RECORDING_QUEUE_SIZE = value
-            elif key == "format": self.config.CAMZ_RECORDING_FORMAT = value
+            if key == "recording_fps":
+                self.config.RECORDING_FPS = value
+            elif key == "prebuffer_seconds":
+                self.config.CAMZ_PREBUFFER_SECONDS = value
+            elif key == "postbuffer_seconds":
+                self.config.CAMZ_POSTBUFFER_SECONDS = value
+            elif key == "storage_limit_gb":
+                self.config.CAMZ_STORAGE_LIMIT_GB = value
+            elif key == "retention_days":
+                self.config.CAMZ_RETENTION_DAYS = value
+            elif key == "queue_size":
+                self.config.CAMZ_RECORDING_QUEUE_SIZE = value
+            elif key == "format":
+                self.config.CAMZ_RECORDING_FORMAT = value
         elif section == "motion":
-            if key == "threshold": self.config.MOTION_THRESHOLD = value
-            elif key == "min_area": self.config.MOTION_MIN_AREA = value
+            if key == "threshold":
+                self.config.MOTION_THRESHOLD = value
+            elif key == "min_area":
+                self.config.MOTION_MIN_AREA = value
         elif section == "system":
-            if key == "log_level": self.config.LOG_LEVEL = value
-            elif key == "json_logs": self.config.JSON_LOGS = value
-            elif key == "port": self.config.PORT = value
+            if key == "log_level":
+                self.config.LOG_LEVEL = value
+            elif key == "json_logs":
+                self.config.JSON_LOGS = value
+            elif key == "port":
+                self.config.PORT = value
         elif section == "tunnel":
-            if key == "enabled": self.config.TUNNEL_ENABLED = bool(value)
-            elif key == "provider": self.config.TUNNEL_PROVIDER = str(value)
-            elif key == "autostart": self.config.TUNNEL_AUTOSTART = bool(value)
-            elif key == "install_if_missing": self.config.TUNNEL_INSTALL_IF_MISSING = bool(value)
-            elif key == "share_localhost": self.config.TUNNEL_SHARE_LOCALHOST = str(value)
-            elif key == "hostname": self.config.TUNNEL_HOSTNAME = str(value)
-            elif key == "token": self.config.TUNNEL_TOKEN = str(value)
-            elif key == "protocol": self.config.TUNNEL_PROTOCOL = str(value)
-            elif key == "max_retries": self.config.TUNNEL_MAX_RETRIES = int(value)
-            elif key == "validation_timeout_seconds": self.config.TUNNEL_VALIDATION_TIMEOUT = float(value)
-            elif key == "quic_fail_threshold": self.config.TUNNEL_QUIC_FAIL_THRESHOLD = int(value)
+            if key == "enabled":
+                self.config.TUNNEL_ENABLED = bool(value)
+            elif key == "provider":
+                self.config.TUNNEL_PROVIDER = str(value)
+            elif key == "autostart":
+                self.config.TUNNEL_AUTOSTART = bool(value)
+            elif key == "install_if_missing":
+                self.config.TUNNEL_INSTALL_IF_MISSING = bool(value)
+            elif key == "share_localhost":
+                self.config.TUNNEL_SHARE_LOCALHOST = str(value)
+            elif key == "hostname":
+                self.config.TUNNEL_HOSTNAME = str(value)
+            elif key == "token":
+                self.config.TUNNEL_TOKEN = str(value)
+            elif key == "protocol":
+                self.config.TUNNEL_PROTOCOL = str(value)
+            elif key == "max_retries":
+                self.config.TUNNEL_MAX_RETRIES = int(value)
+            elif key == "validation_timeout_seconds":
+                self.config.TUNNEL_VALIDATION_TIMEOUT = float(value)
+            elif key == "quic_fail_threshold":
+                self.config.TUNNEL_QUIC_FAIL_THRESHOLD = int(value)
 
         # Persist to settings.json in runtime
         settings_data = {
@@ -330,7 +362,7 @@ class ConfigService(BaseService):
             "TUNNEL_VALIDATION_TIMEOUT": self.config.TUNNEL_VALIDATION_TIMEOUT,
             "TUNNEL_QUIC_FAIL_THRESHOLD": self.config.TUNNEL_QUIC_FAIL_THRESHOLD,
         }
-        
+
         try:
             import json
             with open(self.config.SETTINGS_FILE, "w") as f:
@@ -356,7 +388,7 @@ class NotificationService(BaseService):
     def send_alert(self, subject: str, message: str) -> None:
         """Generic dispatch alerting all channels configured in environment."""
         logger.info("ALERT: %s - %s", subject, message)
-        
+
         # 1. Telegram dispatcher
         tg_token = os.getenv("CAMZ_TELEGRAM_BOT_TOKEN")
         tg_chat = os.getenv("CAMZ_TELEGRAM_CHAT_ID")
@@ -450,16 +482,18 @@ class StorageService(BaseService):
         self.limit_bytes = self.config.CAMZ_STORAGE_LIMIT_GB * 1024 * 1024 * 1024
         self.retention_days = self.config.CAMZ_RETENTION_DAYS
         self.directory = self.config.RECORDINGS_DIR
+        self._lock = threading.RLock()
 
     def get_used_bytes(self) -> int:
         total = 0
-        for root, _, files in os.walk(self.directory):
-            for file in files:
-                path = os.path.join(root, file)
-                try:
-                    total += os.path.getsize(path)
-                except OSError:
-                    pass
+        with self._lock:
+            for root, _, files in os.walk(self.directory):
+                for file in files:
+                    path = os.path.join(root, file)
+                    try:
+                        total += os.path.getsize(path)
+                    except OSError:
+                        pass
         return total
 
     def get_free_bytes(self) -> int:
@@ -468,47 +502,114 @@ class StorageService(BaseService):
         except Exception:
             return 0
 
+    def delete_recording_by_id(self, recording_id: str) -> bool:
+        """Thread-safe deletion of a single recording by ID."""
+        with self._lock:
+            found = False
+            for json_path in self.directory.glob(f"**/{recording_id}.json"):
+                if self._delete_session_files(json_path):
+                    found = True
+                break
+            return found
+
+    def delete_recordings_bulk(self, recording_ids: list[str]) -> dict[str, Any]:
+        """
+        Thread-safe bulk deletion of specified recording IDs.
+        Continues deleting remaining files even if an individual deletion fails.
+        """
+        with self._lock:
+            deleted_count = 0
+            failed_ids: list[str] = []
+            for rec_id in recording_ids:
+                try:
+                    if self.delete_recording_by_id(rec_id):
+                        deleted_count += 1
+                    else:
+                        failed_ids.append(rec_id)
+                except Exception as exc:
+                    logger.error("Bulk delete error for %s: %s", rec_id, exc)
+                    failed_ids.append(rec_id)
+
+            return {
+                "status": "completed",
+                "deleted_count": deleted_count,
+                "failed_count": len(failed_ids),
+                "failed_ids": failed_ids,
+            }
+
+    def delete_all_recordings(self) -> dict[str, Any]:
+        """
+        Thread-safe deletion of all recordings in the storage directory.
+        Returns summary of deleted sessions, failed counts, and freed storage in bytes.
+        """
+        with self._lock:
+            bytes_before = self.get_used_bytes()
+            json_paths = list(self.directory.glob("**/*.json"))
+            deleted_count = 0
+            failed_count = 0
+
+            for json_path in json_paths:
+                try:
+                    if self._delete_session_files(json_path):
+                        deleted_count += 1
+                    else:
+                        failed_count += 1
+                except Exception as exc:
+                    logger.error("Delete all error for %s: %s", json_path, exc)
+                    failed_count += 1
+
+            bytes_after = self.get_used_bytes()
+            freed_bytes = max(0, bytes_before - bytes_after)
+
+            return {
+                "status": "completed",
+                "deleted_count": deleted_count,
+                "failed_count": failed_count,
+                "freed_bytes": freed_bytes,
+            }
+
     def enforce_limits(self) -> int:
         """Run age retention and disk storage quota cleanup."""
         deleted_count = 0
         now = datetime.datetime.now()
 
-        # 1. Enforce age retention
-        recordings = []
-        for path in self.directory.glob("**/*.json"):
-            try:
-                mtime = datetime.datetime.fromtimestamp(path.stat().st_mtime)
-                recordings.append((path, mtime))
-            except OSError:
-                pass
+        with self._lock:
+            # 1. Enforce age retention
+            recordings = []
+            for path in self.directory.glob("**/*.json"):
+                try:
+                    mtime = datetime.datetime.fromtimestamp(path.stat().st_mtime)
+                    recordings.append((path, mtime))
+                except OSError:
+                    pass
 
-        cutoff = now - datetime.timedelta(days=self.retention_days)
-        for json_path, mtime in recordings:
-            if mtime < cutoff:
+            cutoff = now - datetime.timedelta(days=self.retention_days)
+            for json_path, mtime in recordings:
+                if mtime < cutoff:
+                    if self._delete_session_files(json_path):
+                        deleted_count += 1
+
+            # 2. Enforce storage quota limits
+            recordings = []
+            for path in self.directory.glob("**/*.json"):
+                try:
+                    mtime = datetime.datetime.fromtimestamp(path.stat().st_mtime)
+                    recordings.append((path, mtime))
+                except OSError:
+                    pass
+            recordings.sort(key=lambda x: x[1])  # Oldest first
+
+            used_bytes = self.get_used_bytes()
+            for json_path, _ in recordings:
+                if used_bytes <= self.limit_bytes:
+                    break
                 if self._delete_session_files(json_path):
                     deleted_count += 1
+                    used_bytes = self.get_used_bytes()
 
-        # 2. Enforce storage quota limits
-        recordings = []
-        for path in self.directory.glob("**/*.json"):
-            try:
-                mtime = datetime.datetime.fromtimestamp(path.stat().st_mtime)
-                recordings.append((path, mtime))
-            except OSError:
-                pass
-        recordings.sort(key=lambda x: x[1])  # Oldest first
-
-        used_bytes = self.get_used_bytes()
-        for json_path, _ in recordings:
-            if used_bytes <= self.limit_bytes:
-                break
-            if self._delete_session_files(json_path):
-                deleted_count += 1
-                used_bytes = self.get_used_bytes()
-
-        if deleted_count > 0:
-            logger.info("Enforced storage constraints: deleted %d sessions", deleted_count)
-        return deleted_count
+            if deleted_count > 0:
+                logger.info("Enforced storage constraints: deleted %d sessions", deleted_count)
+            return deleted_count
 
     def _delete_session_files(self, json_path: Path) -> bool:
         prefix = json_path.with_suffix("")
@@ -606,7 +707,7 @@ class CameraService(BaseService):
                     is_open = self.camera.is_opened()
                 elif hasattr(self.camera, "isOpened"):
                     is_open = self.camera.isOpened()
-            
+
             if self.camera is None or not is_open:
                 # Attempt lazy recovery check
                 time.sleep(0.5)
@@ -651,7 +752,7 @@ class MotionService(BaseService):
     def __init__(self, manager: ServiceManager) -> None:
         super().__init__(manager)
         self.config = manager.get(ConfigService).config
-        
+
         # MOG2 background subtractor setup
         self._mog2 = cv2.createBackgroundSubtractorMOG2(
             history=300,
@@ -674,7 +775,7 @@ class MotionService(BaseService):
         fg_mask = self._mog2.apply(blurred)
 
         self._frame_count += 1
-        
+
         # Guard: check global light change limit
         total_pixels = fg_mask.shape[0] * fg_mask.shape[1]
         motion = False
@@ -685,24 +786,24 @@ class MotionService(BaseService):
             if (fg_pixels / total_pixels) <= 0.75 and self._frame_count > self._warmup_frames:
                 fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_OPEN, self._kernel)
                 fg_mask = cv2.dilate(fg_mask, self._kernel, iterations=2)
-                
+
                 contours, _ = cv2.findContours(fg_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                
+
                 out_frame = frame.copy()
                 scale = 2
-                
+
                 for contour in contours:
                     area = cv2.contourArea(contour)
                     if area < self.config.MOTION_MIN_AREA:
                         continue
-                    
+
                     x, y, cw, ch = cv2.boundingRect(contour)
                     if cw < 8 or ch < 8:
                         continue
 
                     contour_count += 1
                     motion = True
-                    
+
                     cv2.rectangle(
                         out_frame,
                         (x * scale, y * scale),
@@ -710,7 +811,7 @@ class MotionService(BaseService):
                         (0, 255, 0),
                         2,
                     )
-                
+
                 frame = out_frame
 
         if motion:
@@ -738,7 +839,7 @@ class RecordingService(BaseService):
         self._disk_thread: threading.Thread | None = None
         self._shutdown_event = threading.Event()
         self._active_session = False
-        
+
         # State tracking
         self._session_id: str | None = None
         self._video_path: Path | None = None
@@ -819,7 +920,7 @@ class RecordingService(BaseService):
                 self._write_frame(frame, active_motion)
                 if active_motion:
                     self._last_motion_mono = time.monotonic()
-                
+
                 # Check post-buffer inactivity
                 if time.monotonic() - self._last_motion_mono > self.config.CAMZ_POSTBUFFER_SECONDS and not self._force_record:
                     self._stop_session()
@@ -907,18 +1008,21 @@ class RecordingService(BaseService):
             "reason": "motion",
         }
 
-        meta_path = self._video_path.with_suffix(".json")
-        try:
-            with open(meta_path, "w") as f:
-                json.dump(metadata, f, indent=2)
-        except Exception as e:
-            logger.error("Failed to write recording metadata: %s", e)
+        if self._video_path is not None:
+            meta_path = self._video_path.with_suffix(".json")
+            try:
+                with open(meta_path, "w") as f:
+                    json.dump(metadata, f, indent=2)
+            except Exception as e:
+                logger.error("Failed to write recording metadata: %s", e)
 
-        logger.info("Recording session stopped & saved: %s", self._session_id)
+        sid = self._session_id or ""
+        vpath = str(self._video_path) if self._video_path else ""
+        logger.info("Recording session stopped & saved: %s", sid)
         self.manager.event_bus.publish(
             RecordingStoppedEvent(
-                session_id=self._session_id,
-                video_path=str(self._video_path),
+                session_id=sid,
+                video_path=vpath,
                 duration=duration,
                 file_size_bytes=file_size,
             )
@@ -946,7 +1050,7 @@ class StreamService(BaseService):
         self._latest_mono_time = 0.0
         self._client_count = 0
         self._lock = threading.Lock()
-        
+
         # Performance metrics
         self._encode_fps = FPSCounter()
         self._latency_average = SlidingWindowAverage()
@@ -956,11 +1060,9 @@ class StreamService(BaseService):
 
     def _on_frame_analyzed(self, event: FrameAnalyzedEvent) -> None:
         # Encode to JPEG
-        start_encode = time.monotonic()
         ok, buf = cv2.imencode(
             ".jpg", event.frame, [cv2.IMWRITE_JPEG_QUALITY, self.config.CAMZ_JPEG_QUALITY]
         )
-        encode_time_ms = (time.monotonic() - start_encode) * 1000.0
 
         if ok:
             with self._lock:
@@ -968,7 +1070,7 @@ class StreamService(BaseService):
                 self._latest_version += 1
                 self._latest_mono_time = event.mono_time
             self._encode_fps.tick()
-            
+
             # Streaming latency
             latency_ms = (time.monotonic() - event.mono_time) * 1000.0
             self._latency_average.add(latency_ms)
@@ -1006,12 +1108,12 @@ class HealthService(BaseService):
         super().__init__(manager)
         self._start_time = time.monotonic()
         self._cpu_percent = 0.0
-        self._temp_c = None
+        self._temp_c: float | None = None
         self._mem_used_mb = 0.0
         self._mem_total_mb = 0.0
         self._mem_percent = 0.0
         self._disk_free_gb = 0.0
-        
+
         # Periodic checker thread
         self._thread: threading.Thread | None = None
         self._shutdown_event = threading.Event()
@@ -1038,7 +1140,7 @@ class HealthService(BaseService):
     def get_health_score(self) -> int:
         """Returns computed overall health score (0-100) based on component status."""
         score = 100
-        
+
         # Camera status check
         camera_service = self.manager.get(CameraService)
         is_open = True
@@ -1057,7 +1159,7 @@ class HealthService(BaseService):
             score -= 15
         elif self._cpu_percent > 70.0:
             score -= 5
-            
+
         if self._mem_percent > 90.0:
             score -= 15
         elif self._mem_percent > 80.0:
@@ -1083,15 +1185,15 @@ class HealthService(BaseService):
             try:
                 # Update metrics
                 self._cpu_percent = psutil.Process().cpu_percent(interval=None)
-                
+
                 virtual = psutil.virtual_memory()
                 self._mem_used_mb = psutil.Process().memory_info().rss / (1024 * 1024)
                 self._mem_total_mb = virtual.total / (1024 * 1024)
                 self._mem_percent = psutil.Process().memory_percent()
-                
+
                 storage_service = self.manager.get(StorageService)
                 self._disk_free_gb = storage_service.get_free_bytes() / (1024 * 1024 * 1024)
-                
+
                 # SoC temperature
                 self._temp_c = read_temperature_c()
             except Exception as exc:
@@ -1225,7 +1327,7 @@ class TunnelService(BaseService):
         self.config = manager.get(ConfigService).config
 
         # Process handle
-        self.process = None
+        self.process: Any = None
         self._pid: int | None = None
 
         # State machine (imported inline to avoid circular issues at module load)
@@ -1266,8 +1368,9 @@ class TunnelService(BaseService):
         self._lock = threading.Lock()
 
         # Connectivity validator
-        from backend.tunnel_validator import TunnelConnectivityValidator
         from urllib.parse import urlparse as _urlparse
+
+        from backend.tunnel_validator import TunnelConnectivityValidator
         _local_port = _urlparse(self.config.TUNNEL_SHARE_LOCALHOST).port or 8000
         self._validator = TunnelConnectivityValidator(
             local_port=_local_port,
@@ -1281,7 +1384,7 @@ class TunnelService(BaseService):
     def start(self) -> None:
         super().start()
         self._shutdown_event.clear()
-        self.config.TUNNEL_ENABLED = True
+        setattr(self.config, "TUNNEL_ENABLED", True)
 
         if self._monitor_thread and self._monitor_thread.is_alive():
             logger.info("TunnelService: supervisor thread is already running.")
@@ -1503,8 +1606,8 @@ class TunnelService(BaseService):
         return mapping.get(machine, machine)
 
     def _read_cloudflared_version(self) -> str:
-        import subprocess
         import shutil
+        import subprocess
         if not shutil.which("cloudflared"):
             return ""
         try:
@@ -1529,8 +1632,8 @@ class TunnelService(BaseService):
         Handles: process spawning, log scraping, URL candidate extraction,
         connectivity validation, protocol fallback, and exponential backoff.
         """
-        import subprocess
         import re
+        import subprocess
 
         max_retries = getattr(self.config, "TUNNEL_MAX_RETRIES", 5)
         quic_fail_threshold = getattr(self.config, "TUNNEL_QUIC_FAIL_THRESHOLD", 3)

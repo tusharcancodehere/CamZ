@@ -1,15 +1,16 @@
-import os
 import shutil
-import time
-from pathlib import Path
-import numpy as np
 
 # Add project root to python path
 import sys
+import time
+from pathlib import Path
+
+import numpy as np
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from backend.recording.recorder import Recorder
 from backend.config import config
+from backend.recording.recorder import Recorder
 
 
 def main():
@@ -29,11 +30,11 @@ def main():
 
     # Let's patch the recorder's internal worker logic to measure times
     # We will log the start time, queue get latency, write latency, thumbnail latency, and metadata latency.
-    
+
     # Store timing samples
     queue_latencies = []
     write_latencies = []
-    
+
     original_get = recorder._queue.get
     def instrumented_get(*args, **kwargs):
         start = time.perf_counter()
@@ -69,16 +70,16 @@ def main():
     # Trigger a session
     print("Triggering recording session...")
     recorder.enqueue_frame(dummy_frame, motion_detected=True)
-    
+
     # Feed 100 motion frames
     for _ in range(100):
         recorder.enqueue_frame(dummy_frame, motion_detected=True)
         time.sleep(1.0 / fps)
-        
+
     # Trigger inactivity stop
     recorder.enqueue_frame(dummy_frame, motion_detected=False)
     time.sleep(0.5)
-    
+
     print("Waiting for queue completion...")
     while recorder.queue_size > 0 or recorder.is_recording:
         time.sleep(0.1)

@@ -173,7 +173,6 @@ class TunnelConnectivityValidator:
         """Poll the public tunnel URL until it responds or retries are exhausted."""
         parsed = urlparse(public_url)
         host = parsed.netloc
-        path = parsed.path or "/"
         # Prefer the /health endpoint — gives a meaningful response
         probe_path = "/health"
 

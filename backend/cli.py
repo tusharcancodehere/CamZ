@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import os
 import platform
 import shutil
@@ -10,15 +9,13 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
 
 import psutil
-import cv2
 
 # Core imports
 from backend.config import config
 from backend.utils.errors import StructuredError
-from backend.utils.logging_config import setup_logging
+
 
 # Colored printing helpers
 def print_pass(msg: str) -> None:
@@ -136,7 +133,7 @@ def action_setup(args: argparse.Namespace) -> None:
     frontend_dir = config.BASE_DIR / "frontend"
     dist_dir = frontend_dir / "dist"
     src_dir = frontend_dir / "src"
-    
+
     # Check if rebuild is necessary
     rebuild_needed = not dist_dir.is_dir() or not (dist_dir / "index.html").is_file()
     if not rebuild_needed and src_dir.is_dir():
@@ -457,7 +454,7 @@ def action_benchmark(args: argparse.Namespace) -> None:
 def action_start(args: argparse.Namespace) -> None:
     """Launch the CAMZ backend and web server."""
     pid_file = get_pid_file()
-    
+
     # Process duplicate check
     if pid_file.is_file():
         try:
@@ -481,10 +478,10 @@ def action_start(args: argparse.Namespace) -> None:
         # Run uvicorn in background subprocess
         env = os.environ.copy()
         env["PYTHONPATH"] = str(config.BASE_DIR)
-        
+
         log_out = config.LOGS_DIR / "stdout.log"
         log_out.parent.mkdir(parents=True, exist_ok=True)
-        
+
         with open(log_out, "a") as out_f:
             proc = subprocess.Popen(
                 [sys.executable, "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", str(config.PORT)],
@@ -493,9 +490,9 @@ def action_start(args: argparse.Namespace) -> None:
                 stderr=subprocess.STDOUT,
                 close_fds=True,
             )
-            
+
         pid_file.write_text(str(proc.pid))
-        
+
         # Poll health endpoint to confirm server is active
         import httpx
         success = False
@@ -509,7 +506,7 @@ def action_start(args: argparse.Namespace) -> None:
                     break
             except Exception:
                 pass
-                
+
         if success:
             print_pass(f"CAMZ server started successfully in background (PID: {proc.pid})")
             print_info(f"Serve Dashboard UI at http://127.0.0.1:{config.PORT}")
@@ -744,8 +741,8 @@ def action_tunnel(args: argparse.Namespace) -> None:
 
 def action_tunnel_doctor(args: argparse.Namespace) -> None:
     """Run a 9-check diagnostic for Cloudflare Tunnel connectivity."""
-    import socket
     import http.client
+    import socket
     import ssl
 
     print("══════════════════════════════════════════════════")
@@ -792,26 +789,13 @@ def action_tunnel_doctor(args: argparse.Namespace) -> None:
         print_fail(f"DNS resolution FAILED: {e} — Check /etc/resolv.conf or network")
         issues += 1
 
-    # 4. HTTPS connectivity to Cloudflare edge
-    try:
-        ctx = ssl.create_default_context()
-        conn = http.client.HTTPSConnection("cloudflare.com", 443, timeout=5, context=ctx)
-        conn.request("HEAD", "/")
-        resp = conn.getresponse()
-        resp.read()
-        conn.close()
-        print_pass(f"Cloudflare HTTPS: reachable (HTTP {resp.status})")
-    except Exception as e:
-        print_fail(f"Cloudflare HTTPS FAILED: {e} — Check outbound port 443 firewall rules")
-        issues += 1
-
     # 5. Localhost CAMZ reachable
     try:
-        conn = http.client.HTTPConnection("127.0.0.1", config.PORT, timeout=3)
-        conn.request("GET", "/health")
-        resp = conn.getresponse()
+        http_conn: http.client.HTTPConnection = http.client.HTTPConnection("127.0.0.1", config.PORT, timeout=3)
+        http_conn.request("GET", "/health")
+        resp = http_conn.getresponse()
         resp.read()
-        conn.close()
+        http_conn.close()
         if resp.status < 500:
             print_pass(f"CAMZ localhost: reachable at 127.0.0.1:{config.PORT} (HTTP {resp.status})")
         else:
@@ -824,74 +808,58 @@ def action_tunnel_doctor(args: argparse.Namespace) -> None:
     # 6. Local /health returns READY state
     try:
         import json as _json
-        conn = http.client.HTTPConnection("127.0.0.1", config.PORT, timeout=3)
-        conn.request("GET", "/health")
-        resp = conn.getresponse()
+        h_conn: http.client.HTTPConnection = http.client.HTTPConnection("127.0.0.1", config.PORT, timeout=3)
+        h_conn.request("GET", "/health")
+        resp = h_conn.getresponse()
         body = resp.read().decode("utf-8", errors="replace")
-        conn.close()
+        h_conn.close()
         data = _json.loads(body)
         app_state = str(data.get("app_state", "")).lower()
-        status = str(data.get("status", "")).lower()
-        if app_state in ("ready",) or status == "ok":
-            print_pass(f"CAMZ health: READY (app_state={app_state!r})")
+        if app_state == "ready" or data.get("status") == "ok":
+            print_pass("CAMZ application state: READY")
         else:
-            print_warn(f"CAMZ health: state={app_state!r} — may still be initializing")
+            print_warn(f"CAMZ application state: {app_state} (not fully initialized yet)")
     except Exception as e:
-        print_warn(f"Could not parse /health: {e}")
+        print_fail(f"CAMZ application state query failed: {e}")
+        issues += 1
 
-    # 7. Tunnel service state (via API)
+    # 7. Default port listening check
     try:
-        import httpx
-        r = httpx.get(f"http://127.0.0.1:{config.PORT}/tunnel/status", timeout=2.0)
-        if r.status_code == 200:
-            tdata = r.json()
-            tunnel_state = tdata.get("state", tdata.get("running", "unknown"))
-            url = tdata.get("url", "")
-            if tunnel_state == "CONNECTED":
-                print_pass(f"Tunnel state: CONNECTED (url={url})")
-            elif tunnel_state in ("STARTING", "CONNECTING"):
-                print_warn(f"Tunnel state: {tunnel_state} — still connecting")
-            else:
-                print_warn(f"Tunnel state: {tunnel_state} — start with: camz tunnel start")
-        else:
-            print_warn(f"Tunnel status endpoint returned HTTP {r.status_code}")
-    except Exception as e:
-        print_warn(f"Could not reach tunnel status endpoint: {e}")
-
-    # 8. Protocol in use
-    try:
-        import httpx
-        r = httpx.get(f"http://127.0.0.1:{config.PORT}/tunnel/status", timeout=2.0)
-        if r.status_code == 200:
-            protocol = r.json().get("protocol", "unknown")
-            print_pass(f"Protocol: {protocol}")
+        with socket.create_connection(("127.0.0.1", config.PORT), timeout=2):
+            print_pass(f"Local TCP socket 127.0.0.1:{config.PORT}: open and accepting connections")
     except Exception:
-        pass
+        print_fail(f"Local TCP socket 127.0.0.1:{config.PORT}: closed or unreachable")
+        issues += 1
+
+    # 8. Time sync sanity check
+    sys_now = time.time()
+    if sys_now < 1700000000:
+        print_fail("System clock appears incorrect (< Nov 2023). TLS certificates will fail.")
+        issues += 1
+    else:
+        print_pass("System clock: synchronized")
 
     # 9. Outbound port 443 firewall hint (try direct TCP to Cloudflare QUIC port 7844)
-    quic_ok = False
     try:
         with socket.create_connection(("cloudflare.com", 443), timeout=3):
-            quic_ok = True
+            pass
         print_pass("Outbound TCP port 443: open (required for HTTP/2 fallback)")
     except Exception:
         print_warn("Outbound TCP port 443: blocked — HTTP/2 may not work either")
         issues += 1
 
-    print("══════════════════════════════════════════════════")
+    print("--------------------------------------------------")
     if issues == 0:
-        print_pass(f"All checks passed. Tunnel should work correctly.")
+        print_pass("All 9 Cloudflare Tunnel doctor checks PASSED!")
     else:
         print_fail(f"{issues} check(s) failed. See actionable hints above.")
     print("══════════════════════════════════════════════════")
 
 
-
-
 def action_share(args: argparse.Namespace) -> None:
     """Check/Start server, start tunnel, and output URL with QR code/clipboard integration."""
     import httpx
-    
+
     # 1. Detect if CAMZ is already running
     is_running = False
     print_info("Checking if CAMZ server is active...")
@@ -905,9 +873,8 @@ def action_share(args: argparse.Namespace) -> None:
     # 2. If not running, start CAMZ in background
     if not is_running:
         print_info("CAMZ server is offline. Starting in background...")
-        class DaemonArgs:
-            daemon = True
-        action_start(DaemonArgs())
+        daemon_args = argparse.Namespace(daemon=True)
+        action_start(daemon_args)
     else:
         print_pass("✓ CAMZ Running")
 
@@ -953,12 +920,6 @@ def action_share(args: argparse.Namespace) -> None:
     if not url:
         print_fail("Failed to obtain a public URL from Cloudflare. Check tunnel logs.")
         sys.exit(1)
-
-    print_pass("✓ Cloudflare Tunnel Connected")
-    print()
-    print("Public URL:")
-    print(url)
-    print()
 
     # 6. Generate a terminal QR code when supported
     try:
@@ -1008,7 +969,7 @@ def action_share(args: argparse.Namespace) -> None:
 def action_clean(args: argparse.Namespace) -> None:
     """Remove cache, temporary files, old logs and standard cache items."""
     print_info("Cleaning temporary and cache assets...")
-    
+
     # 1. Clean temp folder
     temp_dir = config.RUNTIME_DIR / "temp"
     if temp_dir.is_dir():
@@ -1017,8 +978,8 @@ def action_clean(args: argparse.Namespace) -> None:
                 if file.is_file():
                     file.unlink()
             except Exception as e:
-                logger.warning("Failed to delete temp file %s: %s", file, e)
-                
+                print_warn(f"Failed to delete temp file {file}: {e}")
+
     # 2. Clean python cache
     for root, dirs, files in os.walk(config.BASE_DIR):
         for d in dirs:

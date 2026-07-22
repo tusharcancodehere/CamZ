@@ -24,7 +24,6 @@ import numpy as np
 
 from backend.config.config import MOTION_MIN_AREA, MOTION_THRESHOLD
 
-
 # Structuring element for morphological ops — slightly larger than default
 # to bridge gaps in contiguous moving objects and remove isolated noise pixels
 _MORPH_KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
