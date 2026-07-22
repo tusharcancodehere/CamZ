@@ -1,32 +1,48 @@
-# React + TypeScript + Vite
+# CAMZ React SPA Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+This directory contains the production-grade React 19 single-page dashboard application for CAMZ.
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Technology Stack
 
-## React Compiler
+- **Framework**: React 19 + TypeScript + Vite 8
+- **Styling**: TailwindCSS v4 (Vanilla CSS tokens in `src/index.css`)
+- **State Management**: Zustand global store (`src/store/useStore.ts`)
+- **Icons**: Lucide React Icons
+- **Telemetry Charts**: Recharts & Framer Motion
+- **Router**: React Router v7
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+---
 
-## Expanding the Oxlint configuration
+## Directory Structure
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```
+frontend/
+├── public/                 # Favicons & static SVGs
+├── src/
+│   ├── components/         # Layout & reusable components (Sidebar, TopBar, CommandPalette, etc.)
+│   ├── pages/              # Route pages (Dashboard, LiveView, Recordings, Settings, Diagnostics, SystemLogs)
+│   ├── store/              # Zustand global state store
+│   ├── App.tsx             # Main routing & application shell
+│   ├── main.tsx            # React entry point
+│   └── index.css           # Global CSS variables & Tailwind v4 imports
+├── dist/                   # Compiled production bundle (git-ignored)
+├── package.json            # NPM dependencies & build scripts
+└── vite.config.ts          # Vite build & proxy configuration
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+---
+
+## Development Scripts
+
+```bash
+# Install dependencies
+npm install
+
+# Start Vite HMR dev server (proxies API requests to http://localhost:8000)
+npm run dev
+
+# Compile production bundle to dist/
+npm run build
+```

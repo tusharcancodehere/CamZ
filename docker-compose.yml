@@ -1,0 +1,28 @@
+version: "3.8"
+
+services:
+  camz:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: camz
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - CAMZ_PORT=8000
+      - CAMZ_LOG_LEVEL=INFO
+      - CAMZ_JSON_LOGS=true
+      - CAMZ_TUNNEL_ENABLED=true
+      - CAMZ_TUNNEL_AUTOSTART=true
+    volumes:
+      - ./runtime:/app/runtime
+      - /dev/video0:/dev/video0  # Pass through host webcam (Linux)
+    devices:
+      - "/dev/video0:/dev/video0"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

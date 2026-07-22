@@ -743,7 +743,6 @@ def action_tunnel_doctor(args: argparse.Namespace) -> None:
     """Run a 9-check diagnostic for Cloudflare Tunnel connectivity."""
     import http.client
     import socket
-    import ssl
 
     print("══════════════════════════════════════════════════")
     print("           Cloudflare Tunnel Doctor               ")

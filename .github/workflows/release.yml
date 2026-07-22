@@ -1,0 +1,51 @@
+name: CAMZ Release Pipeline
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: Build & Create Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build Frontend
+        run: |
+          cd frontend
+          npm ci || npm install
+          npm run build
+
+      - name: Create Distribution Tarball
+        run: |
+          tar -czvf camz-${{ github.ref_name }}.tar.gz \
+            --exclude='./.git' \
+            --exclude='./.venv' \
+            --exclude='./frontend/node_modules' \
+            --exclude='./runtime' \
+            .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: camz-${{ github.ref_name }}.tar.gz
+          draft: false
+          prerelease: false
+          generate_release_notes: true

@@ -1,59 +1,89 @@
-# CAMZ Git Ignore Configurations
+# ==============================================================================
+# CAMZ Production Git Ignore Configuration
+# ==============================================================================
 
 # Python virtual environment
 .venv/
-env/
 venv/
+env/
 ENV/
+.env/
 
 # Python caching & bytecode
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
+*.so
 .pytest_cache/
-.coverage
-htmlcov/
+.ruff_cache/
 .mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+.cache/
 
-# React / Node/ Vite build outputs
+# Node.js & React / Vite build outputs
 node_modules/
 frontend/node_modules/
 frontend/dist/
 dist/
+build/
+*.tsbuildinfo
 
 # All runtime-generated data (logs, recordings, snapshots, cache, temp, settings)
 runtime/
-
-# Endurance & benchmark test data directories
 recordings_endurance/
 
-# Stale top-level runtime artifacts (legacy pre-runtime/ cleanup)
+# Legacy root-level runtime directories
 recordings/
 snapshots/
 logs/
 
-# Video and media files
+# Media & temporary export files
 *.mp4
 *.avi
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.log
+*.pid
 
-# OS specific files
-.DS_Store
-Thumbs.db
+# Cloudflare Tunnel binaries, credentials & certificates
+cloudflared
+cloudflared-*
+*.tgz
+*.deb
+*.rpm
+*.pem
+cert.pem
+tunnel.json
+*.crt
+*.key
 
-# Configuration files
+# Configuration & environment secret files
 .env
 .env.*
 !.env.example
+settings.json
 
-# IDE settings
+# Operating System specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE & Editor settings
 .vscode/
+!.vscode/tasks.json
+!.vscode/launch.json
 .idea/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.swp
-
-# Test artifacts
-*.log
+*~

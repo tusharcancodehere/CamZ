@@ -2,12 +2,13 @@ name: CAMZ Continuous Integration
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, Cloudflare_support ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, Cloudflare_support ]
 
 jobs:
   backend-test:
+    name: Python Lint, Type Check & Test Suite
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -22,20 +23,30 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-glx libglib2.0-0
+          sudo apt-get install -y libgl1-mesa-glx libglib2.0-0 ffmpeg
 
-      - name: Install Python packages
+      - name: Install Python Dependencies
         run: |
-          pip install -U pip setuptools wheel
+          python -m pip install -U pip setuptools wheel
           pip install -r requirements.txt
+          pip install ruff mypy pytest
 
-      - name: Run Tests
+      - name: Run Ruff Code Quality Lint
+        run: |
+          ruff check .
+
+      - name: Run Mypy Static Type Checking
+        run: |
+          mypy backend/ --python-version 3.12 --ignore-missing-imports
+
+      - name: Run Pytest Test Suite
         env:
           PYTHONPATH: .
         run: |
-          pytest -vv
+          pytest tests/ -vv
 
   frontend-build:
+    name: React Frontend Build Check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -48,12 +59,12 @@ jobs:
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           cd frontend
-          npm install
+          npm ci || npm install
 
-      - name: Build assets
+      - name: Build Assets
         run: |
           cd frontend
           npm run build
