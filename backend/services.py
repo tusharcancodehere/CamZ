@@ -340,7 +340,9 @@ class ConfigService(BaseService):
             elif key == "quic_fail_threshold":
                 self.config.TUNNEL_QUIC_FAIL_THRESHOLD = int(value)
 
-        # Persist to settings.json in runtime
+        # Persist to settings.json in runtime.
+        # NOTE: TUNNEL_TOKEN is intentionally excluded — it is a secret credential
+        # and must only be provided via environment variable (CAMZ_TUNNEL_TOKEN) or config.toml.
         settings_data = {
             "STREAM_FPS": self.config.STREAM_FPS,
             "MOTION_THRESHOLD": self.config.MOTION_THRESHOLD,
@@ -356,7 +358,6 @@ class ConfigService(BaseService):
             "TUNNEL_INSTALL_IF_MISSING": self.config.TUNNEL_INSTALL_IF_MISSING,
             "TUNNEL_SHARE_LOCALHOST": self.config.TUNNEL_SHARE_LOCALHOST,
             "TUNNEL_HOSTNAME": self.config.TUNNEL_HOSTNAME,
-            "TUNNEL_TOKEN": self.config.TUNNEL_TOKEN,
             "TUNNEL_PROTOCOL": self.config.TUNNEL_PROTOCOL,
             "TUNNEL_MAX_RETRIES": self.config.TUNNEL_MAX_RETRIES,
             "TUNNEL_VALIDATION_TIMEOUT": self.config.TUNNEL_VALIDATION_TIMEOUT,

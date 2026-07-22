@@ -1,4 +1,4 @@
-# CAMZ Production Configuration Configuration Example
+# CAMZ Production Configuration Example
 # Copy this file to 'config.toml' in the project root to customize defaults.
 
 [camera]
@@ -91,5 +91,18 @@ quick_tunnel = true
 log_level = "info"
 
 # Cloudflare Tunnel token (required only for token-driven Named Tunnels)
+# Security: This value is NOT persisted by the settings UI. Use environment
+# variable CAMZ_TUNNEL_TOKEN or this config file for production deployments.
 token = ""
 
+# Tunnel transport protocol: "" = auto (tries QUIC first), "quic", "http2"
+protocol = ""
+
+# Maximum restart attempts before entering permanent FAILED state (0 = unlimited)
+max_retries = 5
+
+# Timeout in seconds for each HTTP connectivity check during validation
+validation_timeout_seconds = 5.0
+
+# Number of consecutive QUIC failures before automatically switching to HTTP/2
+quic_fail_threshold = 3

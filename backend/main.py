@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 
 import cv2
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -124,18 +124,22 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # Structured Exception handlers for FastAPI HTTP requests
 @app.exception_handler(StructuredError)
-async def structured_error_handler(request: Request, exc: StructuredError):
+async def structured_error_handler(request: Request, exc: StructuredError) -> JSONResponse:
     # Log complete traceback to file
     logger.error("HTTP request structured error: %s", exc.problem, exc_info=exc)
-    return {
-        "error": {
-            "component": exc.component,
-            "problem": exc.problem,
-            "root_cause": exc.root_cause,
-            "impact": exc.impact,
-            "suggested_fix": exc.suggested_fix,
-        }
-    }
+    # Exception handlers MUST return a Response object, not a plain dict.
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": {
+                "component": exc.component,
+                "problem": exc.problem,
+                "root_cause": exc.root_cause,
+                "impact": exc.impact,
+                "suggested_fix": exc.suggested_fix,
+            }
+        },
+    )
 
 
 # Request ID middleware

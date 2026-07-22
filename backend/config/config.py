@@ -132,7 +132,6 @@ _config_data: dict[str, dict[str, Any]] = {
 }
 
 # 2. Overlay config.toml from project root if it exists
-# 2. Overlay config.toml from project root if it exists
 toml_path = BASE_DIR / "config.toml"
 if toml_path.is_file():
     try:
